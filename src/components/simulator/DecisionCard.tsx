@@ -269,10 +269,10 @@ function SpectrumPicker({
           Compare all {sorted.length} options in detail ▾
         </summary>
         <div className="mt-2 space-y-2">
-          {sorted.map(opt => {
+          {sorted.map((opt, idx) => {
             if (!opt.material) return null
             const isChosen = opt.id === chosenOptionId
-            const color = spectrumColor(opt.cost)
+            const color = stopColor(idx)
             return (
               <button key={opt.id} onClick={() => onSelect(opt.id)}
                 className="w-full text-left p-3 rounded-lg cursor-pointer"
