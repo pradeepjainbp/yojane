@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { BuildingType, Persona, PlotConfig } from '@/types'
+import PlotMapPicker from '@/components/onboarding/PlotMapPicker'
 
 const CLIMATE_ZONES = [
   { id: 'composite', label: 'Composite', desc: 'Bangalore, Pune, Delhi — moderate all year' },
@@ -177,22 +178,25 @@ export default function NewBuildPage() {
               Environmental parameters are derived from location — climate zone, seismic zone, rainfall, soil type.
             </p>
 
-            {/* Map placeholder */}
-            <div className="rounded-xl border mb-6 overflow-hidden" style={{ borderColor: '#30363d' }}>
-              <div className="h-56 flex flex-col items-center justify-center"
-                style={{ background: '#1c2128' }}>
-                <p className="text-4xl mb-2">📍</p>
-                <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>Google Maps</p>
-                <p className="text-xs" style={{ color: '#7d8590' }}>Add NEXT_PUBLIC_GOOGLE_MAPS_KEY to .env.local to enable pin drop</p>
-                <p className="text-xs mt-1 font-mono" style={{ color: '#4ade80' }}>
-                  Currently using: {plotConfig.lat?.toFixed(4)}, {plotConfig.lng?.toFixed(4)} (Bangalore default)
-                </p>
-              </div>
+            {/* Map */}
+            <div className="mb-6">
+              <PlotMapPicker
+                initialLat={plotConfig.lat ?? 12.9716}
+                initialLng={plotConfig.lng ?? 77.5946}
+                onLocationChange={(lat, lng, derived) => updatePlot({
+                  lat, lng,
+                  climate_zone: derived.climate_zone as PlotConfig['climate_zone'],
+                  seismic_zone: derived.seismic_zone as PlotConfig['seismic_zone'],
+                  rainfall_mm: derived.rainfall_mm,
+                })}
+              />
             </div>
 
             {/* Climate zone override */}
             <div className="mb-4">
-              <label className="block text-sm font-medium mb-2" style={{ color: '#e6edf3' }}>Climate Zone</label>
+              <label className="block text-sm font-medium mb-2" style={{ color: '#e6edf3' }}>
+                Climate Zone <span className="font-normal text-xs" style={{ color: '#7d8590' }}>— override if auto-detect is wrong</span>
+              </label>
               <div className="grid gap-2">
                 {CLIMATE_ZONES.map(z => (
                   <button key={z.id} onClick={() => updatePlot({ climate_zone: z.id as PlotConfig['climate_zone'] })}
@@ -213,7 +217,9 @@ export default function NewBuildPage() {
 
             {/* Seismic zone */}
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2" style={{ color: '#e6edf3' }}>Seismic Zone (IS 1893)</label>
+              <label className="block text-sm font-medium mb-2" style={{ color: '#e6edf3' }}>
+                Seismic Zone (IS 1893) <span className="font-normal text-xs" style={{ color: '#7d8590' }}>— override if needed</span>
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 {SEISMIC_ZONES.map(z => (
                   <button key={z.id} onClick={() => updatePlot({ seismic_zone: z.id as PlotConfig['seismic_zone'] })}
