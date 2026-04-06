@@ -131,12 +131,12 @@ function SpectrumPicker({
     return (idx / (n - 1)) * 100
   }
 
-  // Color by position: green → amber → red
+  // Color by position: blue (economical) → violet (mid) → gold (premium)
   function stopColor(idx: number): string {
     const t = n <= 1 ? 0 : idx / (n - 1)
-    if (t < 0.33) return '#4ade80'
-    if (t < 0.66) return '#f59e0b'
-    return '#ef4444'
+    if (t < 0.33) return '#60a5fa'
+    if (t < 0.66) return '#a78bfa'
+    return '#f59e0b'
   }
 
   // Click anywhere on track → snap to nearest stop
@@ -151,8 +151,8 @@ function SpectrumPicker({
     <div>
       {/* Legend */}
       <div className="flex justify-between text-xs mb-4">
-        <span style={{ color: '#4ade80' }}>₹ Cheapest</span>
-        <span style={{ color: '#ef4444' }}>Most expensive ₹₹₹</span>
+        <span style={{ color: '#60a5fa' }}>₹ Economical</span>
+        <span style={{ color: '#f59e0b' }}>Premium ✦</span>
       </div>
 
       {/* Track */}
@@ -163,7 +163,7 @@ function SpectrumPicker({
         <div className="absolute rounded-full" style={{
           top: '50%', left: 12, right: 12, height: 6,
           transform: 'translateY(-50%)',
-          background: 'linear-gradient(to right, #4ade8025, #f59e0b25, #ef444425)',
+          background: 'linear-gradient(to right, #60a5fa25, #a78bfa25, #f59e0b25)',
           border: '1px solid #30363d',
           cursor: 'pointer',
         }} />
