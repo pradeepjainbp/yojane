@@ -191,7 +191,7 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
               onClick={() => setShowAutoDecide(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
               style={{ background: '#818cf820', border: '1px solid #818cf840', color: '#818cf8' }}>
-              ✦ Let Yojane Decide
+              ✦ Let AI Decide
             </button>
 
             {/* View Report button — shown when all critical decisions done */}

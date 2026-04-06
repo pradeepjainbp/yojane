@@ -54,9 +54,9 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
         <div className="px-6 py-4 flex items-center justify-between"
           style={{ borderBottom: '1px solid #30363d', background: '#1c2128' }}>
           <div>
-            <h2 className="font-semibold" style={{ color: '#e6edf3' }}>Let Yojane Decide</h2>
+            <h2 className="font-semibold" style={{ color: '#e6edf3' }}>Let AI Decide</h2>
             <p className="text-xs mt-0.5" style={{ color: '#7d8590' }}>
-              Automated decision-making within your budget
+              AI picks the best materials for your budget &amp; climate
             </p>
           </div>
           <button onClick={onClose} className="text-lg cursor-pointer" style={{ color: '#7d8590' }}>×</button>
@@ -108,8 +108,7 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
               </div>
             </div>
             <p className="text-xs mt-3" style={{ color: '#7d8590' }}>
-              Algorithm: Maximises composite score (durability × climate suitability × carbon) within budget tier.
-              You can override any decision after.
+              For each decision, AI scores every option on durability (35%), climate fit for your zone (30%), value for money (20%), and low carbon (15%) — then picks the highest scorer that fits your budget. You can override any choice after.
             </p>
           </div>
 
@@ -126,9 +125,9 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Yojane is thinking…
+                  AI is thinking…
                 </span>
-              ) : 'Run Yojane\'s Decision Engine →'}
+              ) : 'Run AI Decision Engine →'}
             </button>
           )}
 
