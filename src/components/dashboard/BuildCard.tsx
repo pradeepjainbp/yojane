@@ -10,7 +10,6 @@ export default function BuildCard({ build }: { build: Build }) {
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [hovered, setHovered] = useState(false)
 
   const typeBadge: Record<string, { label: string; color: string }> = {
     residential:  { label: 'House',       color: '#4ade80' },
@@ -25,7 +24,6 @@ export default function BuildCard({ build }: { build: Build }) {
     e.preventDefault()
     e.stopPropagation()
     if (!confirming) { setConfirming(true); return }
-
     setDeleting(true)
     const supabase = createClient()
     await supabase.from('builds').delete().eq('id', build.id)
@@ -39,12 +37,12 @@ export default function BuildCard({ build }: { build: Build }) {
   }
 
   return (
-    <div className="relative" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div className="relative">
       <Link href={`/build/${build.id}`}
-        className="block rounded-xl border p-5 transition-colors"
-        style={{ background: '#161b22', borderColor: hovered ? '#4ade8040' : '#30363d' }}>
+        className="block rounded-xl p-5 transition-colors"
+        style={{ background: '#161b22', border: '1px solid #30363d' }}>
 
-        <div className="flex items-start justify-between mb-3">
+        <div className="flex items-start justify-between mb-3 pr-8">
           <span className="text-xs px-2 py-0.5 rounded-full font-mono"
             style={{ background: `${badge.color}20`, color: badge.color }}>
             {badge.label}
@@ -54,8 +52,7 @@ export default function BuildCard({ build }: { build: Build }) {
           </span>
         </div>
 
-        <h3 className="font-semibold mb-1 transition-colors pr-6"
-          style={{ color: hovered ? '#4ade80' : '#e6edf3' }}>
+        <h3 className="font-semibold mb-1 pr-8" style={{ color: '#e6edf3' }}>
           {build.name}
         </h3>
         <p className="text-xs" style={{ color: '#7d8590' }}>
@@ -68,23 +65,18 @@ export default function BuildCard({ build }: { build: Build }) {
         </p>
       </Link>
 
-      {/* Delete button — appears on hover */}
+      {/* Delete button — always visible in top-right corner */}
       {!confirming ? (
         <button
           onClick={handleDelete}
-          className="absolute top-3 right-3 w-6 h-6 rounded flex items-center justify-center transition-opacity cursor-pointer"
-          style={{
-            background: '#ef444420',
-            color: '#ef4444',
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? 'auto' : 'none',
-          }}
+          className="absolute top-4 right-4 w-7 h-7 rounded flex items-center justify-center cursor-pointer text-base leading-none"
+          style={{ background: '#ef444425', color: '#ef4444', border: '1px solid #ef444430' }}
           title="Delete build">
           ×
         </button>
       ) : (
         <div className="absolute inset-0 rounded-xl flex flex-col items-center justify-center gap-3 p-4"
-          style={{ background: '#161b22ee', border: '1px solid #ef444440' }}>
+          style={{ background: '#161b22f0', border: '1px solid #ef444440' }}>
           <p className="text-sm font-medium text-center" style={{ color: '#e6edf3' }}>
             Delete "{build.name}"?
           </p>
@@ -101,8 +93,8 @@ export default function BuildCard({ build }: { build: Build }) {
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer disabled:opacity-60"
-              style={{ background: '#ef4444', color: '#fff' }}>
+              className="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+              style={{ background: '#ef4444', color: '#fff', opacity: deleting ? 0.6 : 1 }}>
               {deleting ? 'Deleting…' : 'Yes, delete'}
             </button>
           </div>
