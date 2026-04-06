@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import type { Build } from '@/types'
+import BuildCard from '@/components/dashboard/BuildCard'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -68,6 +69,7 @@ export default async function DashboardPage() {
             {(builds as Build[]).map((build) => (
               <BuildCard key={build.id} build={build} />
             ))}
+
           </div>
         ) : (
           <EmptyState />
@@ -77,44 +79,6 @@ export default async function DashboardPage() {
   )
 }
 
-function BuildCard({ build }: { build: Build }) {
-  const typeBadge: Record<string, { label: string; color: string }> = {
-    residential: { label: 'House', color: '#4ade80' },
-    apartment:   { label: 'Apartment', color: '#60a5fa' },
-    commercial:  { label: 'Commercial', color: '#f59e0b' },
-    agricultural:{ label: 'Farm', color: '#a3e635' },
-    utility:     { label: 'Utility', color: '#c084fc' },
-  }
-  const badge = typeBadge[build.building_type] ?? { label: build.building_type, color: '#7d8590' }
-
-  return (
-    <Link href={`/build/${build.id}`}
-      className="block rounded-xl border p-5 hover:border-green-500/40 transition-colors group"
-      style={{ background: '#161b22', borderColor: '#30363d' }}>
-      <div className="flex items-start justify-between mb-3">
-        <span className="text-xs px-2 py-0.5 rounded-full font-mono"
-          style={{ background: `${badge.color}20`, color: badge.color }}>
-          {badge.label}
-        </span>
-        <span className="text-xs" style={{ color: '#7d8590' }}>
-          {build.status === 'complete' ? '✓ Complete' : '● Draft'}
-        </span>
-      </div>
-      <h3 className="font-semibold mb-1 group-hover:text-green-400 transition-colors"
-        style={{ color: '#e6edf3' }}>
-        {build.name}
-      </h3>
-      <p className="text-xs" style={{ color: '#7d8590' }}>
-        {build.plot_config?.plot_area_sqft
-          ? `${build.plot_config.plot_area_sqft.toLocaleString()} sqft · ${build.plot_config.floors ?? 1} floor${(build.plot_config.floors ?? 1) > 1 ? 's' : ''}`
-          : 'Plot not configured'}
-      </p>
-      <p className="text-xs mt-2" style={{ color: '#7d8590' }}>
-        Updated {new Date(build.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-      </p>
-    </Link>
-  )
-}
 
 function EmptyState() {
   return (
