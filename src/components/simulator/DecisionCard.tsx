@@ -104,7 +104,7 @@ export default function DecisionCard({ decisionPoint: dp, chosenOptionId, stageC
   )
 }
 
-// ── Spectrum Picker ────────────────────────────────────────────
+// ── Snap Slider Picker ─────────────────────────────────────────
 function SpectrumPicker({
   options, chosenOptionId, stageColor, onSelect,
 }: {
@@ -113,109 +113,153 @@ function SpectrumPicker({
   stageColor: string
   onSelect: (id: string) => void
 }) {
-  // Sort by cost ascending; unknowns go to end
+  // Sort cheapest → priciest
   const sorted = [...options].sort((a, b) => {
     if (a.cost === null) return 1
     if (b.cost === null) return -1
     return a.cost - b.cost
   })
 
-  const costs = sorted.map(o => o.cost).filter(Boolean) as number[]
-  const minCost = Math.min(...costs)
-  const maxCost = Math.max(...costs)
-  const costRange = maxCost - minCost || 1
-
-  const chosen = chosenOptionId ? sorted.find(o => o.id === chosenOptionId) : null
+  const n = sorted.length
+  const chosenIdx = sorted.findIndex(o => o.id === chosenOptionId)
+  const chosen = chosenIdx >= 0 ? sorted[chosenIdx] : null
   const chosenMaterial = chosen?.material ?? null
 
-  // Colour along the spectrum: green → amber → red
-  function spectrumColor(cost: number | null): string {
-    if (cost === null) return '#7d8590'
-    const t = (cost - minCost) / costRange  // 0 = cheapest, 1 = priciest
+  // Equidistant position for each stop (0–100%)
+  function stopPct(idx: number): number {
+    if (n <= 1) return 50
+    return (idx / (n - 1)) * 100
+  }
+
+  // Color by position: green → amber → red
+  function stopColor(idx: number): string {
+    const t = n <= 1 ? 0 : idx / (n - 1)
     if (t < 0.33) return '#4ade80'
     if (t < 0.66) return '#f59e0b'
     return '#ef4444'
   }
 
-  function pct(cost: number | null): number {
-    if (cost === null) return 100
-    return ((cost - minCost) / costRange) * 100
+  // Click anywhere on track → snap to nearest stop
+  function handleTrackClick(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = (e.clientX - rect.left) / rect.width
+    const idx = Math.max(0, Math.min(n - 1, Math.round(pct * (n - 1))))
+    onSelect(sorted[idx].id)
   }
 
   return (
     <div>
       {/* Legend */}
-      <div className="flex justify-between text-xs mb-2">
+      <div className="flex justify-between text-xs mb-4">
         <span style={{ color: '#4ade80' }}>₹ Cheapest</span>
-        <span className="font-mono" style={{ color: '#7d8590' }}>cost per unit</span>
         <span style={{ color: '#ef4444' }}>Most expensive ₹₹₹</span>
       </div>
 
-      {/* Spectrum bar with markers */}
-      <div className="relative mb-5" style={{ height: 8 }}>
-        <div className="absolute inset-0 rounded-full"
-          style={{ background: 'linear-gradient(to right, #4ade8040, #f59e0b40, #ef444440)' }} />
-        {sorted.map(opt => {
+      {/* Track */}
+      <div className="relative px-3 mb-1" style={{ height: 36 }}
+        onClick={handleTrackClick}>
+
+        {/* Base track */}
+        <div className="absolute rounded-full" style={{
+          top: '50%', left: 12, right: 12, height: 6,
+          transform: 'translateY(-50%)',
+          background: 'linear-gradient(to right, #4ade8025, #f59e0b25, #ef444425)',
+          border: '1px solid #30363d',
+          cursor: 'pointer',
+        }} />
+
+        {/* Filled portion up to selected */}
+        {chosenIdx >= 0 && (
+          <div className="absolute rounded-full" style={{
+            top: '50%',
+            left: 12,
+            width: `calc(${stopPct(chosenIdx)}% * (100% - 24px) / 100%)`,
+            height: 6,
+            transform: 'translateY(-50%)',
+            background: `linear-gradient(to right, #4ade80, ${stopColor(chosenIdx)})`,
+            transition: 'width 0.25s ease',
+            pointerEvents: 'none',
+          }} />
+        )}
+
+        {/* Stop notches */}
+        {sorted.map((opt, idx) => {
           const isChosen = opt.id === chosenOptionId
-          const color = spectrumColor(opt.cost)
+          if (isChosen) return null
           return (
-            <button
-              key={opt.id}
-              onClick={() => onSelect(opt.id)}
-              title={opt.material?.name ?? opt.id}
-              className="absolute cursor-pointer transition-all"
+            <div key={opt.id}
+              onClick={e => { e.stopPropagation(); onSelect(opt.id) }}
               style={{
-                left: `${pct(opt.cost)}%`,
+                position: 'absolute',
+                left: `calc(12px + ${stopPct(idx)}% * (100% - 24px) / 100%)`,
                 top: '50%',
-                width: isChosen ? 20 : 14,
-                height: isChosen ? 20 : 14,
-                borderRadius: '50%',
-                background: isChosen ? color : '#0d1117',
-                border: `2px solid ${color}`,
                 transform: 'translate(-50%, -50%)',
-                zIndex: isChosen ? 10 : 5,
-                boxShadow: isChosen ? `0 0 0 4px ${color}30` : 'none',
+                width: 12, height: 12,
+                borderRadius: '50%',
+                background: '#0d1117',
+                border: `2px solid ${stopColor(idx)}`,
+                cursor: 'pointer',
+                zIndex: 5,
               }}
             />
           )
         })}
+
+        {/* Puck — the sliding button */}
+        {chosenIdx >= 0 && (
+          <div style={{
+            position: 'absolute',
+            left: `calc(12px + ${stopPct(chosenIdx)}% * (100% - 24px) / 100%)`,
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 28, height: 28,
+            borderRadius: '50%',
+            background: stopColor(chosenIdx),
+            border: '3px solid #0d1117',
+            boxShadow: `0 0 0 4px ${stopColor(chosenIdx)}40, 0 2px 8px rgba(0,0,0,0.6)`,
+            transition: 'left 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            zIndex: 10,
+            cursor: 'pointer',
+            pointerEvents: 'none',
+          }} />
+        )}
       </div>
 
-      {/* Option buttons — responsive grid, no overlapping */}
-      <div className="grid gap-2 mb-4"
-        style={{ gridTemplateColumns: `repeat(${Math.min(sorted.length, 3)}, 1fr)` }}>
-        {sorted.map(opt => {
+      {/* Equidistant labels — flex so no overlap ever */}
+      <div className="flex mb-5 px-3">
+        {sorted.map((opt, idx) => {
           const isChosen = opt.id === chosenOptionId
-          const color = spectrumColor(opt.cost)
+          const color = stopColor(idx)
+          const align: React.CSSProperties['textAlign'] =
+            idx === 0 ? 'left' : idx === n - 1 ? 'right' : 'center'
           return (
-            <button key={opt.id} onClick={() => onSelect(opt.id)}
-              className="p-2 rounded-lg text-left cursor-pointer transition-all"
-              style={{
-                background: isChosen ? `${color}20` : '#161b22',
-                border: `1px solid ${isChosen ? color : '#30363d'}`,
+            <div key={opt.id}
+              onClick={() => onSelect(opt.id)}
+              style={{ flex: 1, textAlign: align, cursor: 'pointer', padding: '0 2px' }}>
+              <p style={{
+                fontSize: 10, lineHeight: 1.3,
+                fontWeight: isChosen ? 600 : 400,
+                color: isChosen ? color : '#7d8590',
               }}>
-              <p className="text-xs font-medium leading-snug"
-                style={{ color: isChosen ? color : '#e6edf3' }}>
                 {opt.material?.name ?? opt.id}
               </p>
               {opt.cost !== null && (
-                <p className="text-xs font-mono mt-0.5"
-                  style={{ color: isChosen ? color : '#7d8590' }}>
+                <p style={{ fontSize: 9, fontFamily: 'monospace', color: isChosen ? color : '#7d8590' }}>
                   ₹{opt.cost.toLocaleString()}
                 </p>
               )}
-            </button>
+            </div>
           )
         })}
       </div>
 
-      {/* Selected option detail card */}
+      {/* Selected detail card */}
       {chosenMaterial ? (
-        <OptionDetail material={chosenMaterial} color={spectrumColor(chosen?.cost ?? null)} stageColor={stageColor} />
+        <OptionDetail material={chosenMaterial} color={stopColor(chosenIdx)} stageColor={stageColor} />
       ) : (
         <div className="rounded-lg p-3 text-center text-xs"
           style={{ background: '#1c2128', border: '1px dashed #30363d', color: '#7d8590' }}>
-          Click a marker or option above to select
+          Slide or tap to choose
         </div>
       )}
 
