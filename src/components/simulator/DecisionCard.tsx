@@ -145,19 +145,16 @@ function SpectrumPicker({
   return (
     <div>
       {/* Legend */}
-      <div className="flex justify-between text-xs mb-2" style={{ color: '#7d8590' }}>
+      <div className="flex justify-between text-xs mb-2">
         <span style={{ color: '#4ade80' }}>₹ Cheapest</span>
-        <span className="font-mono text-xs">cost per unit</span>
+        <span className="font-mono" style={{ color: '#7d8590' }}>cost per unit</span>
         <span style={{ color: '#ef4444' }}>Most expensive ₹₹₹</span>
       </div>
 
-      {/* Spectrum bar */}
-      <div className="relative mb-2" style={{ height: 8 }}>
-        {/* Gradient track */}
+      {/* Spectrum bar with markers */}
+      <div className="relative mb-5" style={{ height: 8 }}>
         <div className="absolute inset-0 rounded-full"
           style={{ background: 'linear-gradient(to right, #4ade8040, #f59e0b40, #ef444440)' }} />
-
-        {/* Option markers */}
         {sorted.map(opt => {
           const isChosen = opt.id === chosenOptionId
           const color = spectrumColor(opt.cost)
@@ -166,7 +163,7 @@ function SpectrumPicker({
               key={opt.id}
               onClick={() => onSelect(opt.id)}
               title={opt.material?.name ?? opt.id}
-              className="absolute -translate-y-1/2 cursor-pointer transition-all"
+              className="absolute cursor-pointer transition-all"
               style={{
                 left: `${pct(opt.cost)}%`,
                 top: '50%',
@@ -175,7 +172,7 @@ function SpectrumPicker({
                 borderRadius: '50%',
                 background: isChosen ? color : '#0d1117',
                 border: `2px solid ${color}`,
-                transform: `translate(-50%, -50%)`,
+                transform: 'translate(-50%, -50%)',
                 zIndex: isChosen ? 10 : 5,
                 boxShadow: isChosen ? `0 0 0 4px ${color}30` : 'none',
               }}
@@ -184,26 +181,26 @@ function SpectrumPicker({
         })}
       </div>
 
-      {/* Labels below spectrum */}
-      <div className="relative mb-4" style={{ height: 36 }}>
+      {/* Option buttons — responsive grid, no overlapping */}
+      <div className="grid gap-2 mb-4"
+        style={{ gridTemplateColumns: `repeat(${Math.min(sorted.length, 3)}, 1fr)` }}>
         {sorted.map(opt => {
           const isChosen = opt.id === chosenOptionId
           const color = spectrumColor(opt.cost)
-          const label = opt.material?.name ?? opt.id
-          const shortLabel = label.split(' ')[0] + (label.split(' ').length > 1 ? ' ' + label.split(' ')[1] : '')
           return (
-            <button
-              key={opt.id}
-              onClick={() => onSelect(opt.id)}
-              className="absolute text-left cursor-pointer"
-              style={{ left: `${pct(opt.cost)}%`, transform: 'translateX(-50%)', width: 80 }}
-            >
-              <p className="text-xs text-center font-medium leading-tight"
-                style={{ color: isChosen ? color : '#7d8590', fontSize: 10 }}>
-                {shortLabel}
+            <button key={opt.id} onClick={() => onSelect(opt.id)}
+              className="p-2 rounded-lg text-left cursor-pointer transition-all"
+              style={{
+                background: isChosen ? `${color}20` : '#161b22',
+                border: `1px solid ${isChosen ? color : '#30363d'}`,
+              }}>
+              <p className="text-xs font-medium leading-snug"
+                style={{ color: isChosen ? color : '#e6edf3' }}>
+                {opt.material?.name ?? opt.id}
               </p>
               {opt.cost !== null && (
-                <p className="text-center font-mono" style={{ color: isChosen ? color : '#7d8590', fontSize: 9 }}>
+                <p className="text-xs font-mono mt-0.5"
+                  style={{ color: isChosen ? color : '#7d8590' }}>
                   ₹{opt.cost.toLocaleString()}
                 </p>
               )}
@@ -218,7 +215,7 @@ function SpectrumPicker({
       ) : (
         <div className="rounded-lg p-3 text-center text-xs"
           style={{ background: '#1c2128', border: '1px dashed #30363d', color: '#7d8590' }}>
-          Click a marker above to select your choice
+          Click a marker or option above to select
         </div>
       )}
 
