@@ -1,188 +1,249 @@
-# Yojane — Pending Work Tracker
-> Last updated: 2026-04-09 — ACTIVE MIGRATION IN PROGRESS
+# Yojane — Project Status & Pending Work
+> Last updated: 2026-04-09
+> Git: `pradeepjainbp/yojane` · Branch: `master` · Latest commit: `406301b`
+> Live dev: `http://localhost:3000` · Stack: Next.js 15 App Router · Supabase · Tailwind
 
 ---
 
-## 🔴 ACTIVE WORK: Registry → Simulator Migration (Option B)
+## ✅ What Has Been Built (fully working)
 
-### The Core Problem (solved in architecture, now implementing)
-The app has two data systems that are not connected:
-- `registry.csv` — 134 material rows, 27 subcategories, all validated ✅
-- Hardcoded TypeScript (`materials-foundation.ts`, `decision-points.ts`) — what the simulator actually reads ❌
+### App Shell
+- Google OAuth login (`/login`) — `src/app/login/page.tsx`
+- Auth callback + session handling — `src/app/auth/callback/route.ts` + `src/middleware.ts`
+- Root page (`/`) redirects: authenticated → `/dashboard`, unauthenticated → `/login`
+- Dashboard (`/dashboard`) — shows all builds for the logged-in user
+- Onboarding flow (`/dashboard/new`) — multi-step: building type → plot location (Google Maps pin drop) → plot dimensions → climate/seismic params → persona → budget
+- Build simulator (`/build/[id]`) — 6-stage construction decision engine (A–F)
+- Build report (`/build/[id]/report`) — scores, decision log, maintenance calendar, PDF export
+- Sign-out route
 
-### The Fix: Option B — Join by `subcategory_name`
-Each `DecisionPoint` gets a `subcategory?: string` field. If set, the simulator fetches
-components from the Supabase `components` table WHERE `subcategory_name = that value`.
-Those components become the spectrum slider options. Decision points without a subcategory
-fall back to simple list-picker mode (no change needed there).
+### Data Layer
+- **Supabase schema** (`supabase/schema.sql`) — tables: `components`, `builds`, `decisions`, `build_scores`, `shared_links` with RLS policies
+- **`components` table** — 134 rows, 27 subcategories, imported from `registry.csv`. All validated. Zero VERIFY flags. Source: Karnataka PWD SOR 2024-25, CPWD DSR 2023, IS codes.
+- **`builds` / `decisions` / `build_scores`** — live in Supabase, saving correctly
 
-### Decision Point → Subcategory Mappings
+### Simulator Engine
+- `src/data/decision-points.ts` — 37 decision points across 6 stages (A–F). 20 have `subcategory` field linking to registry; 17 are list-pickers (parameter choices like mortar type, plinth height).
+- `src/engine/scoring.ts` — computes comfort, durability, TCO, resilience, carbon from `Component` registry fields
+- `src/engine/auto-decide.ts` — scores every component on durability (35%) · climate fit (30%) · value (20%) · carbon (15%); filters by budget tier via `spectrum_position`
+- `src/components/simulator/DecisionCard.tsx` — spectrum slider with registry data for mapped decisions; list-picker fallback for unmapped ones
+- `src/components/simulator/AutoDecidePanel.tsx` — "Let AI Decide" modal
 
-| Decision | Label | Registry Subcategory | Status |
-|---|---|---|---|
-| A1 | Foundation Type | `Foundation Type` | Mapped |
-| A2 | Excavation Depth | — | List only |
-| A3 | Concrete Mix Grade | — | List only |
-| A4 | Steel Reinforcement Grade | — | List only |
-| A5 | DPC | — | List only |
-| A6 | Termite Protection | `Soil Treatment` | Mapped |
-| A7 | Plinth Height | — | List only |
-| A8 | Plinth Filling Material | — | List only |
-| A9 | Underground Water Tank | — | List only |
-| B1 | Structural System | `Structural System` | Mapped |
-| B2 | Wall Material | `Wall System` | Mapped |
-| B3 | Wall Configuration | — | List only |
-| B4 | Mortar Type | — | List only |
-| B5 | Lintel & Sunshade | — | List only |
-| B6 | External Plastering | `Wall Finish` | Mapped |
-| C1 | Roof Structure | `Roof Type` | Mapped |
-| C2 | Roof Covering | `Roofing Material` | Mapped |
-| C3 | Roof Insulation/Treatment | `Insulation` | Mapped |
-| C4 | Waterproofing System | `Waterproofing` | Mapped |
-| C5 | Parapet / Edge Detail | — | List only |
-| C6 | Rainwater Harvesting | `Rainwater Harvesting` | Mapped |
-| D1 | Flooring — Living Areas | `Flooring` | Mapped |
-| D2 | Flooring — Wet Areas | `Flooring` | Mapped (same subcategory) |
-| D3 | Flooring — External | `Flooring` | Mapped (same subcategory) |
-| D4 | Internal Wall Finish | `Wall Finish` | Mapped |
-| D5 | Kitchen Countertop | — | List only |
-| D6 | Bathroom Fixtures Grade | — | List only |
-| D7 | Main Entry Door | `Doors` | Mapped |
-| D8 | Internal Doors | `Doors` | Mapped (same subcategory) |
-| D9 | Windows | `Windows` | Mapped |
-| E1 | Water Supply Piping | `Plumbing` | Mapped |
-| E2 | Drainage / Sewage Piping | `Plumbing` | Mapped (same subcategory) |
-| E3 | Electrical Wiring | `Electrical` | Mapped |
-| E4 | Electrical Load Planning | — | List only |
-| E5 | Electrical Points Density | — | List only |
-| E6 | Solar Provision | `Solar` | Mapped |
-| E7 | Water Heating System | — | List only |
-| E8 | Rainwater Plumbing | — | List only |
-| E9 | Sewage Treatment | `Waste Management` | Mapped |
-| E10 | Inverter / UPS Wiring | — | List only |
-| F1 | Compound Wall | — | List only |
-| F2 | Gate & Entry | — | List only |
-| F3 | Driveway & Paving | — | List only |
-| F4 | Garden / Landscape | — | List only |
-| F5 | External Lighting | `Lighting Strategy` | Mapped |
+### Key Types (`src/types/index.ts`)
+- `Component` — 49-field type matching registry.csv / Supabase `components` table
+- `DecisionPoint` — includes `subcategory?: string` linking to registry
+- `Build`, `Decision`, `BuildScores`, `PlotConfig` — all stable
 
-**Registry subcategories not yet assigned to a decision point:**
-HVAC, Glazing, Ceiling, Column Grid, Floor System, Green Rating Target,
-Senior-Friendly, High-Seismic, Flood-Prone — add as new decision points later.
-
-### Migration Task Checklist
-- [x] Analyse full decision-point ↔ registry mapping
-- [x] **Add `Component` type to `types/index.ts`** (registry row shape, 49 columns)
-- [x] **Add `subcategory?: string` to `DecisionPoint` type**
-- [x] **Add subcategory field to all 37 decision points in `decision-points.ts`**
-- [x] **Update `BuildSimulator.tsx`**: fetches all components on mount, groups by subcategory_name, passes down to DecisionCard
-- [x] **Rewrite `DecisionCard.tsx`**: accepts `components: Component[]`; full spectrum slider with registry data; falls back to list-picker if empty
-- [x] **Rewrite `scoring.ts`**: uses `durability_score`, `energy_impact_modifier`, `thermal_resistance_score`, `acoustic_score` directly. All hardcoded lookup tables removed.
-- [x] **Rewrite `auto-decide.ts`**: uses `Component` fields; budget tier filtering via `spectrum_position`
-- [x] **Rewrite `AutoDecidePanel.tsx`**: receives `componentsBySubcategory` from BuildSimulator
-- [x] **Rewrite `report/page.tsx`**: fetches components from Supabase server-side; shows `display_name`, cost/sqft, lifespan in Decision Log; maintenance calendar uses registry lifecycle fields
-- [x] **Delete `materials-foundation.ts`**
-- [x] **Remove `MaterialEntry` type from `types/index.ts`** (replaced by `Component`)
-
-### ✅ COMPLETED — Supabase import
-The code is wired. The `components` table just needs to be created and populated.
-Until this is done the app runs in fallback mode (list-pickers, no spectrum sliders).
-
-**Step 1 — Create the table**
-Open [Supabase Dashboard](https://app.supabase.com) → your project → SQL Editor
-Paste and run the `CREATE TABLE components` block from `supabase/schema.sql`
-(lines 26–116, the `components` table only — builds/decisions tables may already exist)
-
-**Step 2 — Import the CSV**
-Supabase Dashboard → Table Editor → `components` table → Import data → CSV
-Select: `src/data/registry.csv`
-Make sure "First row is header" is ticked.
-134 rows will be imported.
-
-**Step 3 — Verify**
-```sql
-SELECT subcategory_name, COUNT(*) FROM components GROUP BY subcategory_name ORDER BY subcategory_name;
+### How the Data Flow Works
 ```
-Should return 27 rows, each with 4–8 components.
+Supabase components table (134 rows)
+        ↓ fetched once on BuildSimulator mount
+componentsBySubcategory: Record<string, Component[]>
+        ↓ passed as prop
+DecisionCard — if dp.subcategory set → SpectrumPicker using Component[]
+             — if no subcategory    → ListPicker using dp.options string[]
+        ↓ on selection
+chosen_option_id = component_id (e.g. "WS-003") OR plain string (e.g. "MORTAR-CM16")
+        ↓ saved to decisions table
+scoring.ts receives chosenComponents: Component[] → computes scores from registry fields
+```
 
-**After import:** all 20 decision points with a `subcategory` mapping will show the spectrum slider with real material data, costs, scores, and expert advisory notes.
+### Decision Point → Registry Subcategory Mapping
+| Decision | Label | Subcategory | Mode |
+|---|---|---|---|
+| A1 | Foundation Type | `Foundation Type` | Spectrum |
+| A2 | Excavation Depth | — | List |
+| A3 | Concrete Mix Grade | — | List |
+| A4 | Steel Reinforcement Grade | — | List |
+| A5 | DPC | — | List |
+| A6 | Termite & Soil Treatment | `Soil Treatment` | Spectrum |
+| A7 | Plinth Height | — | List |
+| A8 | Plinth Filling Material | — | List |
+| A9 | Underground Water Tank | — | List |
+| B1 | Structural System | `Structural System` | Spectrum |
+| B2 | Wall Material | `Wall System` | Spectrum |
+| B3 | Wall Configuration | — | List |
+| B4 | Mortar Type | — | List |
+| B5 | Lintel & Sunshade | — | List |
+| B6 | External Wall Finish | `Wall Finish` | Spectrum |
+| C1 | Roof Structure | `Roof Type` | Spectrum |
+| C2 | Roof Covering / Material | `Roofing Material` | Spectrum |
+| C3 | Roof Insulation / Treatment | `Insulation` | Spectrum |
+| C4 | Waterproofing System | `Waterproofing` | Spectrum |
+| C5 | Parapet / Edge Detail | — | List |
+| C6 | Rainwater Harvesting | `Rainwater Harvesting` | Spectrum |
+| D1 | Flooring — Living Areas | `Flooring` | Spectrum |
+| D2 | Flooring — Wet Areas | `Flooring` | Spectrum |
+| D3 | Flooring — External | `Flooring` | Spectrum |
+| D4 | Internal Wall Finish | `Wall Finish` | Spectrum |
+| D5 | Kitchen Countertop | — | List |
+| D6 | Bathroom Fixtures Grade | — | List |
+| D7 | Main Entry Door | `Doors` | Spectrum |
+| D8 | Internal Doors | `Doors` | Spectrum |
+| D9 | Windows | `Windows` | Spectrum |
+| E1 | Water Supply Piping | `Plumbing` | Spectrum |
+| E2 | Drainage / Sewage Piping | `Plumbing` | Spectrum |
+| E3 | Electrical Wiring | `Electrical` | Spectrum |
+| E4 | Electrical Load Planning | — | List |
+| E5 | Electrical Points Density | — | List |
+| E6 | Solar Provision | `Solar` | Spectrum |
+| E7 | Water Heating System | — | List |
+| E8 | Rainwater Plumbing | — | List |
+| E9 | Sewage Treatment | `Waste Management` | Spectrum |
+| E10 | Inverter / UPS Wiring | — | List |
+| F1–F4 | Compound Wall / Gate / Driveway / Garden | — | List |
+| F5 | External Lighting | `Lighting Strategy` | Spectrum |
+
+**Registry subcategories not yet assigned to any decision point** (add as new decisions later):
+HVAC, Glazing, Ceiling, Column Grid, Floor System, Green Rating Target, Senior-Friendly, High-Seismic, Flood-Prone
 
 ---
 
-## 🔴 Critical / Blocking (unblocked after migration above)
+## 🔴 Next Up — Highest Priority
 
-### 2. Google Maps Pin Drop (Onboarding Step 2)
-- Add `NEXT_PUBLIC_GOOGLE_MAPS_KEY` to `.env.local`
-- Enable Maps JavaScript API + Elevation API in Google Cloud Console
-- Replace placeholder in `src/app/dashboard/new/page.tsx`
-- Auto-derive: climate zone, seismic zone, rainfall, soil type, elevation from lat/lng
+### 1. Images for Material Choices
+**What:** Decision cards show text + specs only. Users need to see what each material looks like.
 
-### 3. Images / Visual References for Material Choices
-- Add `image_url` column to `components` table in Supabase
-- Curate photos, upload to Supabase Storage
-- Show thumbnail in spectrum slider beside option name
+**How:**
+1. Add `image_url TEXT` column to `components` table in Supabase:
+   ```sql
+   ALTER TABLE components ADD COLUMN image_url TEXT;
+   ```
+2. Upload ~1 photo per component to Supabase Storage bucket `component-images`
+3. In `DecisionCard.tsx` → `ComponentDetail` component — add `<img src={c.image_url}>` thumbnail
+4. In `SpectrumPicker` — show small thumbnail above each slider label
+
+**Files to edit:** `src/components/simulator/DecisionCard.tsx`
 
 ---
 
-## 🟡 Important / Should-have for v1 launch
+### 2. Build Report — Cost Breakdown Section
+**What:** Section C of the report is missing a proper cost table. The registry data is now available to compute it.
 
-### 4. Architect Layer
-- "Architect Insights" panel in simulator sidebar
-- Sun path, ventilation quality, Vastu conflict alerts
+**How:** In `src/app/build/[id]/report/page.tsx`:
+- For each decision with a Component, calculate: `(base_cost_per_sqft_inr + installation_cost_per_sqft_inr) × relevant_area_sqft`
+- Relevant area: use `build.plot_config.plot_area_sqft × floors` for most; adjust for walls/roof
+- Show stage-wise table: Stage A total | B total | C total … | Grand total
+- Show material cost vs labour cost split
+- Compare to `target_budget_inr`
 
-### 5. Build Report — Full Sections
-| Section | Status |
-|---------|--------|
-| A: Project Summary | ✅ Done |
-| B: Decision Log | ✅ Partial |
-| C: Cost Breakdown | ❌ Missing — needs Component data from registry |
-| D: Score Summary | ✅ Partial |
-| E: Maintenance Calendar | ✅ Partial |
-| F: "Consider Reviewing" | ❌ Missing |
+**Files to edit:** `src/app/build/[id]/report/page.tsx`
 
-### 6. Cost Override (Contractor Quote Entry)
-- "Enter actual quote" button per decision card
-- `cost_override` field exists in DB, not in UI
+---
 
-### 7. Build Sharing (Read-only Link)
-- `shared_links` table exists in DB
-- `/share/[token]` route not built
+### 3. Cost Override (Contractor Quote Entry)
+**What:** User can enter their actual contractor quote per material and see delta vs PWD benchmark.
 
-### 8. Copy / Duplicate Build
-- `is_copy_of` field in DB, not in UI
-- "Duplicate" button on dashboard build cards
+**How:**
+- `cost_override` field already exists in the `decisions` table
+- Add "Enter actual quote ₹__/sqft" input in `DecisionCard.tsx` below the selected component detail
+- On save: `supabase.from('decisions').update({ cost_override: value })`
+- Show delta: "Your quote: ₹72/sqft · Benchmark: ₹65/sqft · +11% above"
+- Use `cost_override` in `scoring.ts → calculateTCO()` when present (already has the parameter, just not wired to UI)
+
+**Files to edit:** `src/components/simulator/DecisionCard.tsx`, `src/engine/scoring.ts`
+
+---
+
+### 4. Build Sharing (Read-only Link)
+**What:** Generate a shareable link for any build. `shared_links` table already exists in DB.
+
+**How:**
+- Add "Share Build" button in `BuildSimulator.tsx` header
+- On click: `supabase.from('shared_links').insert({ build_id, permissions: 'view' })` → returns token
+- Create `/share/[token]/page.tsx` — server component, reads build via token, renders read-only report view
+- "Fork this build" button on shared view: copies to viewer's account
+
+**Files to create:** `src/app/share/[token]/page.tsx`
+**Files to edit:** `src/app/build/[id]/BuildSimulator.tsx`
+
+---
+
+### 5. Copy / Duplicate Build
+**What:** "Create a variant" — e.g. "Showing Contractor Raju", "If We Stretch Budget 10%".
+
+**How:**
+- Add "Duplicate" button to `src/components/dashboard/BuildCard.tsx`
+- On click: copy `builds` row with `is_copy_of = original_id`, copy all `decisions` rows with new `build_id`
+- Report for copied builds shows "X changes from original build"
+
+**Files to edit:** `src/components/dashboard/BuildCard.tsx`, `src/app/dashboard/page.tsx`
+
+---
+
+### 6. Vercel Deployment → `yojane.pradeepjainbp.in`
+**Steps:**
+1. Repo already on GitHub: `pradeepjainbp/yojane`
+2. Connect to Vercel → import that repo → auto-deploy on push
+3. Set env vars in Vercel dashboard:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_GOOGLE_MAPS_KEY`
+   - `NEXT_PUBLIC_APP_URL=https://yojane.pradeepjainbp.in`
+4. Add CNAME in Cloudflare: `yojane` → Vercel deployment URL
+5. In Google Cloud Console → OAuth → Authorized redirect URIs → add `https://yojane.pradeepjainbp.in/auth/callback`
+6. In Supabase Dashboard → Auth → URL Configuration → add `https://yojane.pradeepjainbp.in` to allowed URLs
+
+---
+
+## 🟡 Important / Should-have for v1
+
+### 7. Architect Layer
+- "Architect Insights" panel in simulator right sidebar (next to ScorePanel)
+- Sun path analysis for chosen road-facing direction
+- Ventilation quality rating based on wall config + orientation
+- Vastu conflict alerts when `vastu_enabled = true` and a choice conflicts with thermal/acoustic optimum
+
+### 8. Build Report — Missing Sections
+| Section | Status | Notes |
+|---------|--------|-------|
+| A: Project Summary | ✅ Done | |
+| B: Decision Log | ✅ Done | Shows display_name, cost/sqft, lifespan |
+| C: Cost Breakdown | ❌ Missing | See item 2 above |
+| D: Score Summary | ✅ Partial | Cards exist, no radar chart |
+| E: Maintenance Calendar | ✅ Partial | Shows major_maintenance_cycle_years per component |
+| F: "Consider Reviewing" | ❌ Missing | Diplomatic suggestions when a choice scores below threshold |
 
 ### 9. PDF Quality
-- Switch to `@react-pdf/renderer` for proper A4 PDF
+- Current PDF uses `html2canvas` — it's a screenshot, not typeset
+- Switch to `@react-pdf/renderer` for clean A4 white-background PDF
+- File: `src/components/simulator/DownloadPdfButton.tsx`
 
-### 10. Vercel Deployment
-1. Push `yojane/` to GitHub
-2. Connect to Vercel
-3. Set env vars (Supabase URL + key, Maps key)
-4. Configure `yojane.pradeepjainbp.in` CNAME in Cloudflare
-5. Add auth callback URL to Google OAuth
+### 10. Google Maps Pin Drop (Onboarding)
+- Already partially built (`src/components/onboarding/PlotMapPicker.tsx` exists)
+- `NEXT_PUBLIC_GOOGLE_MAPS_KEY` is set in `.env.local`
+- Auto-derive from lat/lng: climate zone, seismic zone, rainfall, soil type, elevation
+- Check `src/app/dashboard/new/page.tsx` for the onboarding step that needs the real map
 
 ---
 
-## 🟢 Nice-to-have / v2
+## 🟢 v2 / Nice-to-have
 
-11. Isometric Building Visualiser (PixiJS, proper textures)
-12. 20-Year Fast-Forward Animation
-13. Achievement Badges
-14. "What Yojane Users Chose" Benchmarks
-15. Myth Buster Feature (fields already in registry)
-16. BOQ (Bill of Quantities) Generation
-17. Demo Mode (unauthenticated)
-18. Additional Building Types (full depth)
-19. Integration with pradeepjainbp.in
+11. **Isometric Building Visualiser** — PixiJS, material textures, stage-by-stage animation
+12. **20-Year Fast-Forward Animation** — maintenance events, material degradation, cost accumulation
+13. **Achievement Badges** — Monsoon-Proof, Carbon Champion, The Accountant, Vastu Compliant etc.
+14. **"What Yojane Users Chose" Benchmarks** — distribution of choices per climate zone (needs user base)
+15. **Myth Buster Feature** — `common_misconception` + `myth_buster_fact` fields already in registry schema, just needs UI treatment in DecisionCard
+16. **BOQ Generation** — contractor-ready document with quantities, specs, costs
+17. **Demo Mode** — unauthenticated `/demo` route with pre-configured sample plot
+18. **Additional Building Types** — apartment, commercial, agricultural decision trees (currently only residential has full depth)
+19. **Integration with pradeepjainbp.in** — card on main website linking to Yojane
 
 ---
 
 ## 📊 Summary
 
 | Category | Count | Status |
-|----------|-------|--------|
-| Active migration tasks | 10 | 🔴 In progress |
-| Critical blockers | 2 | 🔴 Not done |
-| Important v1 features | 7 | 🟡 Not done |
-| v2 / Nice-to-have | 9 | 🟢 Backlog |
+|---|---|---|
+| Fully working | Core app + registry + scoring | ✅ |
+| Next up (highest ROI) | Images, cost breakdown, sharing, deployment | 🔴 6 items |
+| Should-have v1 | Architect layer, PDF, report sections | 🟡 4 items |
+| v2 backlog | Visualiser, badges, demo mode, BOQ | 🟢 9 items |
+
+### Suggested build order for next session
+1. Images for material choices (visual impact, relatively simple)
+2. Cost breakdown section in report (data is there, just needs UI)
+3. Vercel deployment (gets it live)
+4. Cost override UI (contractor workflow)
+5. Build sharing
+6. Copy/duplicate build
