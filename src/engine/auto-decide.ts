@@ -102,7 +102,7 @@ export function autoDecide(
       }
     } else {
       // No registry data — use default or first option
-      chosenId    = dp.default_option ?? dp.options[0] ?? 'UNKNOWN'
+      chosenId    = dp.default_option ?? dp.options[0]?.id ?? 'UNKNOWN'
       chosenName  = chosenId
       chosenScore = 50
       why = 'System default — no registry data for this decision yet'

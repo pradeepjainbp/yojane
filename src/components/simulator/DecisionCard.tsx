@@ -392,21 +392,22 @@ function Spec({ label, value, note }: { label: string; value: string; note?: str
 function ListPicker({
   options, chosenOptionId, stageColor, onSelect,
 }: {
-  options: string[]
+  options: { id: string; label: string; hint?: string }[]
   chosenOptionId: string | null
   stageColor: string
   onSelect: (id: string) => void
 }) {
   return (
     <div className="space-y-2">
-      {options.map(optId => {
-        const isChosen = optId === chosenOptionId
+      {options.map(opt => {
+        const isChosen = opt.id === chosenOptionId
         return (
-          <button key={optId} onClick={() => onSelect(optId)}
+          <button key={opt.id} onClick={() => onSelect(opt.id)}
             className="w-full flex items-center gap-3 p-3 rounded-lg text-left cursor-pointer"
             style={{ background: isChosen ? stageColor + '15' : '#161b22', border: `1px solid ${isChosen ? stageColor : '#30363d'}` }}>
             <div className="flex-1">
-              <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>{optId}</p>
+              <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>{opt.label}</p>
+              {opt.hint && <p className="text-xs mt-0.5" style={{ color: '#7d8590' }}>{opt.hint}</p>}
             </div>
             {isChosen && <span style={{ color: stageColor }}>✓</span>}
           </button>

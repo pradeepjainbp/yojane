@@ -171,6 +171,12 @@ export interface Component {
 
 export type Difficulty = 1 | 2 | 3  // ★ ★★ ★★★
 
+export interface DecisionOption {
+  id: string
+  label: string
+  hint?: string   // short description shown below the label
+}
+
 export interface DecisionPoint {
   id: string              // e.g. "A1"
   stage: Stage
@@ -178,8 +184,8 @@ export interface DecisionPoint {
   description: string
   classification: 'critical' | 'standard'
   difficulty: Difficulty
-  options: string[]       // fallback option IDs when no registry subcategory mapped
-  subcategory?: string    // registry subcategory_name — if set, options come from Supabase
+  options: DecisionOption[]  // fallback options when no registry subcategory mapped
+  subcategory?: string       // registry subcategory_name — if set, options come from Supabase
   default_option: string | null
   constraints: DecisionConstraint[]
   vastu_relevant: boolean
