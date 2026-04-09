@@ -97,45 +97,72 @@ export interface ScoreBreakdown {
 }
 
 // ============================================================
-// Data Registry Types
+// Component — single row from the Supabase `components` table
+// (maps 1:1 to registry.csv columns)
 // ============================================================
+export interface Component {
+  // Identity & Display
+  component_id: string               // e.g. 'WS-001'
+  category_name: string              // e.g. 'Envelope'
+  subcategory_name: string           // e.g. 'Wall System'
+  name: string                       // machine key e.g. 'aac_block'
+  display_name: string               // e.g. 'AAC Block (Autoclaved Aerated Concrete)'
+  description: string | null
+  region: string
+  climate_zone: string | null        // semicolon-separated e.g. 'Warm-Humid;Hot-Dry'
+  spectrum_position: string | null   // Basic | Intermediate | Performance | Premium | Ultra-Premium
+  sort_order: number
 
-export interface MaterialEntry {
-  id: string
-  name: string
-  name_local: string
-  category: 'foundation' | 'wall' | 'roof' | 'floor' | 'mep_plumbing' | 'mep_electrical' | 'exterior'
-  sub_category: string
-  applicable_building_types: BuildingType[]
-  unit: string
-  unit_metric: string
-  cost_per_unit_material: number
-  cost_per_unit_labor: number
-  cost_source: string
-  u_value: number | null
-  stc_rating: number | null
-  compressive_strength: string | null
-  water_absorption: string | null
+  // Cost — Capex (₹ per sqft of relevant area)
+  base_cost_per_sqft_inr: number | null
+  installation_cost_per_sqft_inr: number | null
+  cost_confidence: string | null
+  cost_last_updated: string | null         // TEXT in DB — may be '2023-04' or '2024-Q1'
+  cost_source_notes: string | null
+
+  // Lifecycle
+  expected_lifespan_years: number | null
+  replacement_cost_factor: number | null
+  major_maintenance_cycle_years: number | null
+  major_maintenance_cost_factor: number | null
+  annual_minor_maint_factor: number | null
+  maintenance_complexity: string | null  // Low | Medium | High
+  lifecycle_source_notes: string | null
+
+  // Performance Scores (0–10)
+  thermal_resistance_score: number | null  // NUMERIC (0–10, may be decimal e.g. 7.5)
+  acoustic_score: number | null            // NUMERIC (0–10, may be decimal)
+  durability_score: number | null          // NUMERIC (0–10, may be decimal)
+  moisture_resistance: string | null       // Low | Medium | High
   fire_rating: string | null
-  expected_useful_life_years: number
-  maintenance_schedule: MaintenanceItem[]
-  carbon_footprint_kgco2: number
-  climate_suitability: Partial<Record<ClimateZone, number>>
-  contractor_popularity: number
-  common_misconception: string | null
-  myth_buster_fact: string | null
-  vastu_notes: string | null
-  technical_spec_ref: string
-  visual_ref: string
-  pros: string[]
-  cons: string[]
-}
+  energy_impact_modifier: number | null    // -1.0 to +1.0
+  accessibility_score: string | null       // High | Medium | Low (TEXT in DB)
+  thermal_source_notes: string | null
 
-export interface MaintenanceItem {
-  year: number
-  task: string
-  estimated_cost_inr: number
-  complexity: 'low' | 'medium' | 'high'
+  // Rule Engine
+  max_floors_supported: number | null
+  min_floors_required: number | null
+  max_span_supported_m: string | null      // TEXT in DB — may be 'N/A'
+  incompatible_with: string | null
+  compatible_with: string | null
+  requires_component: string | null
+  climate_restrictions: string | null
+  hard_block_rule: string | null
+  advisory_rule: string | null
+  advisory_message: string | null
+  advisory_severity: string | null
+  constraint_source_notes: string | null
+
+  // AI Advisory
+  ai_advisory_notes: string | null
+  pros: string | null                    // semicolon-separated
+  cons: string | null                    // semicolon-separated
+  tooltip_detail: string | null
+
+  // Audit
+  status: string
+  verify_flags: string | null
+  data_filled_by: string | null
 }
 
 // ============================================================
@@ -151,7 +178,8 @@ export interface DecisionPoint {
   description: string
   classification: 'critical' | 'standard'
   difficulty: Difficulty
-  options: string[]       // material IDs
+  options: string[]       // fallback option IDs when no registry subcategory mapped
+  subcategory?: string    // registry subcategory_name — if set, options come from Supabase
   default_option: string | null
   constraints: DecisionConstraint[]
   vastu_relevant: boolean

@@ -1,40 +1,29 @@
 'use client'
 
 import { useState } from 'react'
-import type { DecisionPoint } from '@/types'
-import { foundationMaterials } from '@/data/materials-foundation'
-import type { MaterialEntry } from '@/types'
-
-const allMaterials: MaterialEntry[] = [...foundationMaterials]
-
-function getMaterial(id: string): MaterialEntry | null {
-  return allMaterials.find(m => m.id === id) ?? null
-}
+import type { Component, DecisionPoint } from '@/types'
 
 const DIFFICULTY_STARS = { 1: '★', 2: '★★', 3: '★★★' }
 const DIFFICULTY_LABELS = { 1: 'Easy', 2: 'Moderate', 3: 'Hard' }
 
 interface Props {
   decisionPoint: DecisionPoint
+  /** Registry components for this decision's subcategory. Empty = fallback to list-picker. */
+  components: Component[]
   chosenOptionId: string | null
   stageColor: string
   onSelect: (optionId: string) => void
 }
 
-export default function DecisionCard({ decisionPoint: dp, chosenOptionId, stageColor, onSelect }: Props) {
+export default function DecisionCard({ decisionPoint: dp, components, chosenOptionId, stageColor, onSelect }: Props) {
   const [expanded, setExpanded] = useState(dp.classification === 'critical')
   const isCritical = dp.classification === 'critical'
   const isComplete = !!chosenOptionId
 
-  // Gather options with cost data
-  const optionsWithData = dp.options.map(id => ({
-    id,
-    material: getMaterial(id),
-    cost: (() => { const m = getMaterial(id); return m ? m.cost_per_unit_material + m.cost_per_unit_labor : null })(),
-  }))
-
-  const hasSpectrumData = optionsWithData.filter(o => o.cost !== null).length >= 2
-  const chosenMaterial = chosenOptionId ? getMaterial(chosenOptionId) : null
+  const hasRegistryData = components.length > 0
+  const chosenComponent = hasRegistryData
+    ? components.find(c => c.component_id === chosenOptionId) ?? null
+    : null
 
   const cardBorder = isComplete
     ? `1px solid ${stageColor}40`
@@ -71,8 +60,11 @@ export default function DecisionCard({ decisionPoint: dp, chosenOptionId, stageC
             )}
           </div>
           <h3 className="font-medium text-sm mt-0.5" style={{ color: '#e6edf3' }}>{dp.label}</h3>
-          {chosenMaterial && !expanded && (
-            <p className="text-xs mt-0.5" style={{ color: stageColor }}>→ {chosenMaterial.name}</p>
+          {chosenComponent && !expanded && (
+            <p className="text-xs mt-0.5" style={{ color: stageColor }}>→ {chosenComponent.display_name}</p>
+          )}
+          {!hasRegistryData && chosenOptionId && !expanded && (
+            <p className="text-xs mt-0.5" style={{ color: stageColor }}>→ {chosenOptionId}</p>
           )}
         </div>
         <span className="text-xs flex-shrink-0" style={{ color: '#7d8590' }}>{expanded ? '▲' : '▼'}</span>
@@ -83,16 +75,16 @@ export default function DecisionCard({ decisionPoint: dp, chosenOptionId, stageC
         <div className="px-4 pb-4">
           <p className="text-xs mb-5 leading-relaxed" style={{ color: '#7d8590' }}>{dp.description}</p>
 
-          {hasSpectrumData ? (
+          {hasRegistryData ? (
             <SpectrumPicker
-              options={optionsWithData}
+              components={components}
               chosenOptionId={chosenOptionId}
               stageColor={stageColor}
               onSelect={onSelect}
             />
           ) : (
             <ListPicker
-              options={optionsWithData}
+              options={dp.options}
               chosenOptionId={chosenOptionId}
               stageColor={stageColor}
               onSelect={onSelect}
@@ -104,34 +96,26 @@ export default function DecisionCard({ decisionPoint: dp, chosenOptionId, stageC
   )
 }
 
-// ── Snap Slider Picker ─────────────────────────────────────────
+// ── Spectrum Picker — used when registry components are available ──
 function SpectrumPicker({
-  options, chosenOptionId, stageColor, onSelect,
+  components, chosenOptionId, stageColor, onSelect,
 }: {
-  options: { id: string; material: MaterialEntry | null; cost: number | null }[]
+  components: Component[]
   chosenOptionId: string | null
   stageColor: string
   onSelect: (id: string) => void
 }) {
-  // Sort cheapest → priciest
-  const sorted = [...options].sort((a, b) => {
-    if (a.cost === null) return 1
-    if (b.cost === null) return -1
-    return a.cost - b.cost
-  })
+  // Already sorted by sort_order from Supabase query
+  const n = components.length
+  const chosenIdx = components.findIndex(c => c.component_id === chosenOptionId)
+  const chosen = chosenIdx >= 0 ? components[chosenIdx] : null
 
-  const n = sorted.length
-  const chosenIdx = sorted.findIndex(o => o.id === chosenOptionId)
-  const chosen = chosenIdx >= 0 ? sorted[chosenIdx] : null
-  const chosenMaterial = chosen?.material ?? null
-
-  // Equidistant position for each stop (0–100%)
   function stopPct(idx: number): number {
     if (n <= 1) return 50
     return (idx / (n - 1)) * 100
   }
 
-  // Color by position: blue (economical) → violet (mid) → gold (premium)
+  // Blue (economical) → violet (mid) → gold (premium)
   function stopColor(idx: number): string {
     const t = n <= 1 ? 0 : idx / (n - 1)
     if (t < 0.33) return '#60a5fa'
@@ -139,12 +123,11 @@ function SpectrumPicker({
     return '#f59e0b'
   }
 
-  // Click anywhere on track → snap to nearest stop
   function handleTrackClick(e: React.MouseEvent<HTMLDivElement>) {
     const rect = e.currentTarget.getBoundingClientRect()
     const pct = (e.clientX - rect.left) / rect.width
     const idx = Math.max(0, Math.min(n - 1, Math.round(pct * (n - 1))))
-    onSelect(sorted[idx].id)
+    onSelect(components[idx].component_id)
   }
 
   return (
@@ -156,8 +139,7 @@ function SpectrumPicker({
       </div>
 
       {/* Track */}
-      <div className="relative px-3 mb-1" style={{ height: 36 }}
-        onClick={handleTrackClick}>
+      <div className="relative px-3 mb-1" style={{ height: 36 }} onClick={handleTrackClick}>
 
         {/* Base track */}
         <div className="absolute rounded-full" style={{
@@ -183,12 +165,11 @@ function SpectrumPicker({
         )}
 
         {/* Stop notches */}
-        {sorted.map((opt, idx) => {
-          const isChosen = opt.id === chosenOptionId
-          if (isChosen) return null
+        {components.map((comp, idx) => {
+          if (comp.component_id === chosenOptionId) return null
           return (
-            <div key={opt.id}
-              onClick={e => { e.stopPropagation(); onSelect(opt.id) }}
+            <div key={comp.component_id}
+              onClick={e => { e.stopPropagation(); onSelect(comp.component_id) }}
               style={{
                 position: 'absolute',
                 left: `calc(12px + ${stopPct(idx)}% * (100% - 24px) / 100%)`,
@@ -200,12 +181,11 @@ function SpectrumPicker({
                 border: `2px solid ${stopColor(idx)}`,
                 cursor: 'pointer',
                 zIndex: 5,
-              }}
-            />
+              }} />
           )
         })}
 
-        {/* Puck — the sliding button */}
+        {/* Puck */}
         {chosenIdx >= 0 && (
           <div style={{
             position: 'absolute',
@@ -225,27 +205,27 @@ function SpectrumPicker({
         )}
       </div>
 
-      {/* Equidistant labels — flex so no overlap ever */}
+      {/* Labels below track */}
       <div className="flex mb-5 px-3">
-        {sorted.map((opt, idx) => {
-          const isChosen = opt.id === chosenOptionId
+        {components.map((comp, idx) => {
+          const isChosen = comp.component_id === chosenOptionId
           const color = stopColor(idx)
           const align: React.CSSProperties['textAlign'] =
             idx === 0 ? 'left' : idx === n - 1 ? 'right' : 'center'
           return (
-            <div key={opt.id}
-              onClick={() => onSelect(opt.id)}
+            <div key={comp.component_id}
+              onClick={() => onSelect(comp.component_id)}
               style={{ flex: 1, textAlign: align, cursor: 'pointer', padding: '0 2px' }}>
               <p style={{
                 fontSize: 10, lineHeight: 1.3,
                 fontWeight: isChosen ? 600 : 400,
                 color: isChosen ? color : '#7d8590',
               }}>
-                {opt.material?.name ?? opt.id}
+                {comp.display_name}
               </p>
-              {opt.cost !== null && (
+              {comp.base_cost_per_sqft_inr !== null && (
                 <p style={{ fontSize: 9, fontFamily: 'monospace', color: isChosen ? color : '#7d8590' }}>
-                  ₹{opt.cost.toLocaleString()}
+                  ₹{comp.base_cost_per_sqft_inr}/sqft
                 </p>
               )}
             </div>
@@ -254,8 +234,8 @@ function SpectrumPicker({
       </div>
 
       {/* Selected detail card */}
-      {chosenMaterial ? (
-        <OptionDetail material={chosenMaterial} color={stopColor(chosenIdx)} stageColor={stageColor} />
+      {chosen ? (
+        <ComponentDetail component={chosen} color={stopColor(chosenIdx)} stageColor={stageColor} />
       ) : (
         <div className="rounded-lg p-3 text-center text-xs"
           style={{ background: '#1c2128', border: '1px dashed #30363d', color: '#7d8590' }}>
@@ -263,28 +243,36 @@ function SpectrumPicker({
         </div>
       )}
 
-      {/* All options list (collapsed) */}
+      {/* Compare all options */}
       <details className="mt-3">
         <summary className="text-xs cursor-pointer" style={{ color: '#7d8590' }}>
-          Compare all {sorted.length} options in detail ▾
+          Compare all {n} options in detail ▾
         </summary>
         <div className="mt-2 space-y-2">
-          {sorted.map((opt, idx) => {
-            if (!opt.material) return null
-            const isChosen = opt.id === chosenOptionId
+          {components.map((comp, idx) => {
+            const isChosen = comp.component_id === chosenOptionId
             const color = stopColor(idx)
+            const totalCost = (comp.base_cost_per_sqft_inr ?? 0) + (comp.installation_cost_per_sqft_inr ?? 0)
             return (
-              <button key={opt.id} onClick={() => onSelect(opt.id)}
+              <button key={comp.component_id} onClick={() => onSelect(comp.component_id)}
                 className="w-full text-left p-3 rounded-lg cursor-pointer"
                 style={{ background: isChosen ? color + '10' : '#161b22', border: `1px solid ${isChosen ? color : '#30363d'}` }}>
                 <div className="flex justify-between items-start">
-                  <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>{opt.material.name}</p>
-                  <span className="text-xs font-mono" style={{ color }}>₹{opt.cost?.toLocaleString()}/{opt.material.unit.split(' ')[0]}</span>
+                  <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>{comp.display_name}</p>
+                  {totalCost > 0 && (
+                    <span className="text-xs font-mono" style={{ color }}>₹{totalCost}/sqft</span>
+                  )}
                 </div>
-                <p className="text-xs mt-1" style={{ color: '#7d8590' }}>{opt.material.name_local !== opt.material.name ? opt.material.name_local : ''}</p>
+                {comp.description && (
+                  <p className="text-xs mt-1 line-clamp-2" style={{ color: '#7d8590' }}>{comp.description}</p>
+                )}
                 <div className="flex gap-3 mt-1 text-xs font-mono flex-wrap">
-                  {opt.material.u_value !== null && <span style={{ color: '#7d8590' }}>U: {opt.material.u_value}</span>}
-                  <span style={{ color: '#7d8590' }}>Life: {opt.material.expected_useful_life_years}yr</span>
+                  {comp.durability_score !== null && (
+                    <span style={{ color: '#7d8590' }}>Durability: {comp.durability_score}/10</span>
+                  )}
+                  {comp.expected_lifespan_years !== null && (
+                    <span style={{ color: '#7d8590' }}>Life: {comp.expected_lifespan_years}yr</span>
+                  )}
                 </div>
               </button>
             )
@@ -295,78 +283,94 @@ function SpectrumPicker({
   )
 }
 
-// ── Option Detail Card (shown after selection in spectrum) ─────
-function OptionDetail({ material: m, color, stageColor }: {
-  material: MaterialEntry; color: string; stageColor: string
+// ── Component Detail Card (shown after selection) ─────────────
+function ComponentDetail({ component: c, color, stageColor }: {
+  component: Component; color: string; stageColor: string
 }) {
+  const pros = c.pros ? c.pros.split(';').map(s => s.trim()).filter(Boolean) : []
+  const cons = c.cons ? c.cons.split(';').map(s => s.trim()).filter(Boolean) : []
+  const totalCost = (c.base_cost_per_sqft_inr ?? 0) + (c.installation_cost_per_sqft_inr ?? 0)
+
   return (
     <div className="rounded-lg p-4" style={{ background: '#1c2128', border: `1px solid ${color}40` }}>
       <div className="flex justify-between items-start mb-3">
         <div>
-          <p className="font-semibold text-sm" style={{ color: '#e6edf3' }}>{m.name}</p>
-          {m.name_local !== m.name && (
-            <p className="text-xs italic" style={{ color: '#7d8590' }}>{m.name_local}</p>
+          <p className="font-semibold text-sm" style={{ color: '#e6edf3' }}>{c.display_name}</p>
+          {c.spectrum_position && (
+            <p className="text-xs italic" style={{ color: '#7d8590' }}>{c.spectrum_position}</p>
           )}
         </div>
-        <div className="text-right">
-          <p className="text-sm font-bold font-mono" style={{ color }}>
-            ₹{(m.cost_per_unit_material + m.cost_per_unit_labor).toLocaleString()}
-          </p>
-          <p className="text-xs" style={{ color: '#7d8590' }}>{m.unit}</p>
-        </div>
+        {totalCost > 0 && (
+          <div className="text-right">
+            <p className="text-sm font-bold font-mono" style={{ color }}>₹{totalCost}/sqft</p>
+            <p className="text-xs" style={{ color: '#7d8590' }}>
+              {c.base_cost_per_sqft_inr !== null ? `₹${c.base_cost_per_sqft_inr} mat` : ''}
+              {c.installation_cost_per_sqft_inr !== null ? ` + ₹${c.installation_cost_per_sqft_inr} labour` : ''}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Key specs grid */}
       <div className="grid grid-cols-2 gap-2 mb-3">
-        {m.u_value !== null && (
-          <Spec label="Thermal (U-value)" value={`${m.u_value} W/m²K`} note="lower = better insulation" />
+        {c.durability_score !== null && (
+          <Spec label="Durability" value={`${c.durability_score}/10`} />
         )}
-        {m.stc_rating !== null && (
-          <Spec label="Sound (STC)" value={`${m.stc_rating} dB`} note="higher = quieter" />
+        {c.thermal_resistance_score !== null && (
+          <Spec label="Thermal resistance" value={`${c.thermal_resistance_score}/10`} note="higher = better insulation" />
         )}
-        <Spec label="Expected life" value={`${m.expected_useful_life_years} years`} />
-        <Spec label="Carbon footprint" value={`${m.carbon_footprint_kgco2} kg CO₂`} />
-        {m.compressive_strength && (
-          <Spec label="Compressive strength" value={m.compressive_strength} />
+        {c.acoustic_score !== null && (
+          <Spec label="Sound isolation" value={`${c.acoustic_score}/10`} note="higher = quieter" />
         )}
-        {m.water_absorption && (
-          <Spec label="Water absorption" value={m.water_absorption} />
+        {c.expected_lifespan_years !== null && (
+          <Spec label="Expected life" value={`${c.expected_lifespan_years} years`} />
+        )}
+        {c.energy_impact_modifier !== null && (
+          <Spec
+            label="Energy impact"
+            value={c.energy_impact_modifier > 0 ? `+${c.energy_impact_modifier} (saves energy)` : `${c.energy_impact_modifier} (uses more)`}
+          />
+        )}
+        {c.maintenance_complexity && (
+          <Spec label="Maintenance" value={c.maintenance_complexity} />
         )}
       </div>
 
-      {/* Source */}
-      <p className="text-xs mb-3 font-mono" style={{ color: '#7d8590' }}>
-        📋 {m.cost_source}
-      </p>
+      {/* Cost source */}
+      {c.cost_source_notes && (
+        <p className="text-xs mb-3 font-mono" style={{ color: '#7d8590' }}>
+          📋 {c.cost_source_notes}
+        </p>
+      )}
 
       {/* Pros / Cons */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          {m.pros.map((p, i) => (
-            <p key={i} className="text-xs" style={{ color: '#4ade80' }}>+ {p}</p>
-          ))}
-        </div>
-        <div>
-          {m.cons.map((c, i) => (
-            <p key={i} className="text-xs" style={{ color: '#ef4444' }}>− {c}</p>
-          ))}
-        </div>
-      </div>
-
-      {/* Myth buster */}
-      {m.common_misconception && (
-        <div className="p-3 rounded text-xs"
-          style={{ background: '#f59e0b10', borderLeft: '2px solid #f59e0b' }}>
-          <p className="font-medium mb-1" style={{ color: '#f59e0b' }}>
-            💡 Common myth: &ldquo;{m.common_misconception}&rdquo;
-          </p>
-          <p style={{ color: '#e6edf3' }}>{m.myth_buster_fact}</p>
+      {(pros.length > 0 || cons.length > 0) && (
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>{pros.map((p, i) => <p key={i} className="text-xs" style={{ color: '#4ade80' }}>+ {p}</p>)}</div>
+          <div>{cons.map((con, i) => <p key={i} className="text-xs" style={{ color: '#ef4444' }}>− {con}</p>)}</div>
         </div>
       )}
 
-      {/* Vastu note */}
-      {m.vastu_notes && (
-        <p className="text-xs mt-2" style={{ color: '#a78bfa' }}>🕉 {m.vastu_notes}</p>
+      {/* AI advisory notes (domain expert voice) */}
+      {c.ai_advisory_notes && (
+        <div className="p-3 rounded text-xs mb-3"
+          style={{ background: '#818cf810', borderLeft: '2px solid #818cf8' }}>
+          <p className="font-medium mb-1" style={{ color: '#818cf8' }}>💡 Expert insight</p>
+          <p style={{ color: '#e6edf3' }}>{c.ai_advisory_notes}</p>
+        </div>
+      )}
+
+      {/* Advisory warning */}
+      {c.advisory_message && c.advisory_severity !== 'None' && (
+        <div className="p-3 rounded text-xs mb-3"
+          style={{
+            background: c.advisory_severity === 'Critical' ? '#ef444410' : '#f59e0b10',
+            borderLeft: `2px solid ${c.advisory_severity === 'Critical' ? '#ef4444' : '#f59e0b'}`,
+          }}>
+          <p style={{ color: c.advisory_severity === 'Critical' ? '#ef4444' : '#f59e0b' }}>
+            ⚠ {c.advisory_message}
+          </p>
+        </div>
       )}
 
       <p className="text-xs mt-2 text-right font-medium" style={{ color: stageColor }}>✓ Selected</p>
@@ -379,46 +383,32 @@ function Spec({ label, value, note }: { label: string; value: string; note?: str
     <div className="rounded p-2" style={{ background: '#161b22' }}>
       <p className="text-xs" style={{ color: '#7d8590' }}>{label}</p>
       <p className="text-xs font-mono font-medium" style={{ color: '#e6edf3' }}>{value}</p>
-      {note && <p className="text-xs" style={{ color: '#7d8590', fontSize: 9 }}>{note}</p>}
+      {note && <p style={{ color: '#7d8590', fontSize: 9 }}>{note}</p>}
     </div>
   )
 }
 
-// ── List Picker (fallback when no cost data) ───────────────────
+// ── List Picker — fallback when no registry data ───────────────
 function ListPicker({
   options, chosenOptionId, stageColor, onSelect,
 }: {
-  options: { id: string; material: MaterialEntry | null; cost: number | null }[]
+  options: string[]
   chosenOptionId: string | null
   stageColor: string
   onSelect: (id: string) => void
 }) {
   return (
     <div className="space-y-2">
-      {options.map(opt => {
-        const isChosen = opt.id === chosenOptionId
-        if (!opt.material) {
-          return (
-            <button key={opt.id} onClick={() => onSelect(opt.id)}
-              className="w-full flex items-center gap-3 p-3 rounded-lg text-left cursor-pointer"
-              style={{ background: isChosen ? stageColor + '15' : '#161b22', border: `1px solid ${isChosen ? stageColor : '#30363d'}` }}>
-              <div className="flex-1">
-                <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>{opt.id}</p>
-                <p className="text-xs" style={{ color: '#7d8590' }}>Data coming soon</p>
-              </div>
-              {isChosen && <span style={{ color: stageColor }}>✓</span>}
-            </button>
-          )
-        }
+      {options.map(optId => {
+        const isChosen = optId === chosenOptionId
         return (
-          <button key={opt.id} onClick={() => onSelect(opt.id)}
-            className="w-full p-3 rounded-lg text-left cursor-pointer"
-            style={{ background: isChosen ? stageColor + '10' : '#161b22', border: `1px solid ${isChosen ? stageColor : '#30363d'}` }}>
-            <div className="flex justify-between items-start">
-              <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>{opt.material.name}</p>
-              {isChosen && <span className="text-xs" style={{ color: stageColor }}>✓ Selected</span>}
+          <button key={optId} onClick={() => onSelect(optId)}
+            className="w-full flex items-center gap-3 p-3 rounded-lg text-left cursor-pointer"
+            style={{ background: isChosen ? stageColor + '15' : '#161b22', border: `1px solid ${isChosen ? stageColor : '#30363d'}` }}>
+            <div className="flex-1">
+              <p className="text-sm font-medium" style={{ color: '#e6edf3' }}>{optId}</p>
             </div>
-            <p className="text-xs mt-0.5" style={{ color: '#7d8590' }}>{opt.material.name_local}</p>
+            {isChosen && <span style={{ color: stageColor }}>✓</span>}
           </button>
         )
       })}

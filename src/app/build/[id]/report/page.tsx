@@ -2,14 +2,8 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { allDecisions } from '@/data/decision-points'
-import { foundationMaterials } from '@/data/materials-foundation'
 import DownloadPdfButton from '@/components/simulator/DownloadPdfButton'
-import type { Build, Decision, BuildScores } from '@/types'
-
-const allMaterials = [...foundationMaterials]
-function getMaterial(id: string) {
-  return allMaterials.find(m => m.id === id) ?? null
-}
+import type { Build, Component, Decision, BuildScores } from '@/types'
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -17,32 +11,25 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: build } = await supabase
-    .from('builds')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .single()
+  const [{ data: build }, { data: decisions }, { data: scores }, { data: components }] = await Promise.all([
+    supabase.from('builds').select('*').eq('id', id).eq('user_id', user.id).single(),
+    supabase.from('decisions').select('*').eq('build_id', id).order('decision_id'),
+    supabase.from('build_scores').select('*').eq('build_id', id).single(),
+    supabase.from('components').select('*').eq('status', 'Active'),
+  ])
+
   if (!build) notFound()
 
-  const { data: decisions } = await supabase
-    .from('decisions')
-    .select('*')
-    .eq('build_id', id)
-    .order('decision_id')
+  const b     = build as Build
+  const decs  = (decisions ?? []) as Decision[]
+  const s     = scores as BuildScores | null
+  const comps = (components ?? []) as Component[]
 
-  const { data: scores } = await supabase
-    .from('build_scores')
-    .select('*')
-    .eq('build_id', id)
-    .single()
+  // Index components by component_id for O(1) lookup
+  const compById = Object.fromEntries(comps.map(c => [c.component_id, c]))
 
-  const b = build as Build
-  const decs = (decisions ?? []) as Decision[]
-  const s = scores as BuildScores | null
-
-  const criticalDecisions = allDecisions.filter(d => d.classification === 'critical')
-  const completedCritical = criticalDecisions.filter(d => decs.some(dec => dec.decision_id === d.id))
+  const criticalDecisions  = allDecisions.filter(d => d.classification === 'critical')
+  const completedCritical  = criticalDecisions.filter(d => decs.some(dec => dec.decision_id === d.id))
 
   return (
     <div className="min-h-screen" style={{ background: '#0d1117' }}>
@@ -90,22 +77,13 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
               Build Scores
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <ScoreCard label="Comfort" value={`${s.comfort}/100`} color="#4ade80" icon="🌡"
-                desc="Thermal · Light · Ventilation · Acoustic · Spatial" />
-              <ScoreCard label="Durability" value={`${s.durability}/100`} color="#60a5fa" icon="🏛"
-                desc="Expected life across all components" />
-              <ScoreCard label="Resilience" value={`${s.resilience}/100`} color="#a78bfa" icon="🛡"
-                desc="Monsoon · Seismic · Wind · Termite" />
-              <ScoreCard label="20-yr TCO" value={`₹${s.tco?.toLocaleString()}/sqft`} color="#f59e0b" icon="💰"
-                desc="Construction + maintenance + energy" />
-              <ScoreCard label="Carbon" value={`${s.carbon} kg/sqft`} color="#a3e635" icon="🌿"
-                desc="Embodied + 20-yr operational CO₂" />
+              <ScoreCard label="Comfort"    value={`${s.comfort}/100`}             color="#4ade80" icon="🌡" desc="Thermal · Light · Ventilation · Acoustic · Spatial" />
+              <ScoreCard label="Durability" value={`${s.durability}/100`}          color="#60a5fa" icon="🏛" desc="Expected life across all components" />
+              <ScoreCard label="Resilience" value={`${s.resilience}/100`}          color="#a78bfa" icon="🛡" desc="Monsoon · Seismic · Wind · Termite" />
+              <ScoreCard label="20-yr TCO"  value={`₹${s.tco?.toLocaleString()}/sqft`} color="#f59e0b" icon="💰" desc="Construction + maintenance + energy" />
+              <ScoreCard label="Carbon"     value={`${s.carbon} kg/sqft`}          color="#a3e635" icon="🌿" desc="Embodied + 20-yr operational CO₂" />
               {b.plot_config?.target_budget_inr && (
-                <ScoreCard
-                  label="Target Budget"
-                  value={`₹${(b.plot_config.target_budget_inr / 100000).toFixed(1)}L`}
-                  color="#e6edf3" icon="🎯"
-                  desc="Your stated budget" />
+                <ScoreCard label="Target Budget" value={`₹${(b.plot_config.target_budget_inr / 100000).toFixed(1)}L`} color="#e6edf3" icon="🎯" desc="Your stated budget" />
               )}
             </div>
           </section>
@@ -139,7 +117,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         <section>
           <SectionHeader letter="B" title="Decision Log" />
           <div className="space-y-2">
-            {['A', 'B', 'C', 'D', 'E', 'F'].map(stage => {
+            {(['A', 'B', 'C', 'D', 'E', 'F'] as const).map(stage => {
               const stageDecs = decs.filter(d => d.stage === stage)
               if (stageDecs.length === 0) return null
               const stageLabels: Record<string, string> = {
@@ -149,28 +127,23 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                 A: '#f59e0b', B: '#60a5fa', C: '#818cf8', D: '#f472b6', E: '#34d399', F: '#a3e635'
               }
               return (
-                <div key={stage} className="rounded-xl overflow-hidden"
-                  style={{ border: '1px solid #30363d' }}>
-                  <div className="px-4 py-2.5 flex items-center gap-2"
-                    style={{ background: '#1c2128' }}>
-                    <span className="text-xs font-mono font-bold" style={{ color: stageColors[stage] }}>
-                      {stage}
-                    </span>
-                    <span className="text-xs font-medium" style={{ color: '#e6edf3' }}>
-                      {stageLabels[stage]}
-                    </span>
-                    <span className="text-xs ml-auto" style={{ color: '#7d8590' }}>
-                      {stageDecs.length} decisions
-                    </span>
+                <div key={stage} className="rounded-xl overflow-hidden" style={{ border: '1px solid #30363d' }}>
+                  <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: '#1c2128' }}>
+                    <span className="text-xs font-mono font-bold" style={{ color: stageColors[stage] }}>{stage}</span>
+                    <span className="text-xs font-medium" style={{ color: '#e6edf3' }}>{stageLabels[stage]}</span>
+                    <span className="text-xs ml-auto" style={{ color: '#7d8590' }}>{stageDecs.length} decisions</span>
                   </div>
                   <div className="divide-y" style={{ borderColor: '#21262d' }}>
                     {stageDecs.map(dec => {
-                      const dp = allDecisions.find(d => d.id === dec.decision_id)
-                      const mat = getMaterial(dec.chosen_option_id)
+                      const dp   = allDecisions.find(d => d.id === dec.decision_id)
+                      const comp = compById[dec.chosen_option_id] ?? null
+                      const totalCost = comp
+                        ? (comp.base_cost_per_sqft_inr ?? 0) + (comp.installation_cost_per_sqft_inr ?? 0)
+                        : null
                       return (
                         <div key={dec.decision_id} className="px-4 py-3 flex items-start justify-between gap-4">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-mono" style={{ color: stageColors[stage] }}>
                                 {dec.decision_id}
                               </span>
@@ -180,19 +153,19 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                               )}
                               <span className="text-xs" style={{ color: '#e6edf3' }}>{dp?.label}</span>
                             </div>
-                            {mat && (
-                              <p className="text-xs mt-0.5" style={{ color: '#7d8590' }}>
-                                → {mat.name}
-                                {mat.name_local !== mat.name && ` (${mat.name_local})`}
+                            <p className="text-xs mt-0.5" style={{ color: '#7d8590' }}>
+                              → {comp?.display_name ?? dec.chosen_option_id}
+                            </p>
+                            {comp?.durability_score !== null && comp && (
+                              <p className="text-xs mt-0.5 font-mono" style={{ color: '#7d8590' }}>
+                                Durability {comp.durability_score}/10 · Life {comp.expected_lifespan_years}yr
                               </p>
                             )}
                           </div>
-                          {mat && (
+                          {totalCost !== null && totalCost > 0 && (
                             <div className="text-right flex-shrink-0">
-                              <p className="text-xs font-mono" style={{ color: '#e6edf3' }}>
-                                ₹{(mat.cost_per_unit_material + mat.cost_per_unit_labor).toLocaleString()}
-                              </p>
-                              <p className="text-xs" style={{ color: '#7d8590' }}>{mat.unit}</p>
+                              <p className="text-xs font-mono" style={{ color: '#e6edf3' }}>₹{totalCost}/sqft</p>
+                              <p className="text-xs" style={{ color: '#7d8590' }}>mat + labour</p>
                             </div>
                           )}
                         </div>
@@ -205,39 +178,44 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           </div>
         </section>
 
-        {/* Section C: Maintenance Calendar (simplified) */}
+        {/* Section C: Maintenance Calendar */}
         <section>
-          <SectionHeader letter="C" title="20-Year Maintenance Calendar" />
+          <SectionHeader letter="C" title="20-Year Maintenance Guide" />
           <div className="rounded-xl p-5" style={{ background: '#161b22', border: '1px solid #30363d' }}>
-            {decs.map(dec => {
-              const mat = getMaterial(dec.chosen_option_id)
-              if (!mat || mat.maintenance_schedule.length === 0) return null
-              return mat.maintenance_schedule.map((item, i) => (
-                <div key={`${dec.decision_id}-${i}`}
-                  className="flex items-center justify-between py-2"
-                  style={{ borderBottom: '1px solid #21262d' }}>
-                  <div>
-                    <span className="text-xs font-mono px-2 py-0.5 rounded mr-3"
-                      style={{ background: '#1c2128', color: '#f59e0b' }}>
-                      Year {item.year}
-                    </span>
-                    <span className="text-xs" style={{ color: '#e6edf3' }}>{item.task}</span>
-                    <span className="text-xs ml-2" style={{ color: '#7d8590' }}>({mat.name})</span>
-                  </div>
-                  <span className="text-xs font-mono" style={{ color: '#4ade80' }}>
-                    ₹{item.estimated_cost_inr.toLocaleString()}
-                  </span>
-                </div>
-              ))
-            })}
-            {decs.every(d => {
-              const mat = getMaterial(d.chosen_option_id)
-              return !mat || mat.maintenance_schedule.length === 0
-            }) && (
-              <p className="text-xs text-center py-4" style={{ color: '#7d8590' }}>
-                Maintenance data will appear here as material registry is populated.
-              </p>
-            )}
+            {(() => {
+              const rows = decs
+                .map(dec => {
+                  const comp = compById[dec.chosen_option_id]
+                  const dp   = allDecisions.find(d => d.id === dec.decision_id)
+                  if (!comp || !comp.major_maintenance_cycle_years) return null
+                  return (
+                    <div key={dec.decision_id} className="flex items-center justify-between py-2"
+                      style={{ borderBottom: '1px solid #21262d' }}>
+                      <div>
+                        <span className="text-xs font-mono px-2 py-0.5 rounded mr-3"
+                          style={{ background: '#1c2128', color: '#f59e0b' }}>
+                          Every {comp.major_maintenance_cycle_years}yr
+                        </span>
+                        <span className="text-xs" style={{ color: '#e6edf3' }}>{dp?.label}</span>
+                        <span className="text-xs ml-2" style={{ color: '#7d8590' }}>({comp.display_name})</span>
+                      </div>
+                      <span className="text-xs font-mono capitalize" style={{ color: '#4ade80' }}>
+                        {comp.maintenance_complexity ?? 'Medium'} effort
+                      </span>
+                    </div>
+                  )
+                })
+                .filter(Boolean)
+
+              if (rows.length === 0) {
+                return (
+                  <p className="text-xs text-center py-4" style={{ color: '#7d8590' }}>
+                    Maintenance data will appear here once the components table is populated in Supabase.
+                  </p>
+                )
+              }
+              return rows
+            })()}
           </div>
         </section>
 

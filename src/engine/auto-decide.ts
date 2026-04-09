@@ -1,33 +1,36 @@
 import { allDecisions } from '@/data/decision-points'
-import { foundationMaterials } from '@/data/materials-foundation'
 import { calculateAllScores } from './scoring'
-import type { PlotConfig, Decision, MaterialEntry, Stage } from '@/types'
+import type { Component, PlotConfig, Decision, Stage } from '@/types'
 
-const allMaterials: MaterialEntry[] = [...foundationMaterials]
+// ── Score a single Component for a given plot (0–100) ────────
+// Weights: durability 35% · climate fit 30% · value 20% · low carbon 15%
+function scoreComponent(comp: Component, plot: PlotConfig): number {
+  // Durability: registry durability_score is 0–10
+  const durability = ((comp.durability_score ?? 5) / 10) * 100
 
-function getMaterial(id: string): MaterialEntry | null {
-  return allMaterials.find(m => m.id === id) ?? null
-}
+  // Climate fit: check if user's climate zone appears in the component's climate_zone list
+  // climate_zone field is semicolon-separated e.g. 'Warm-Humid;Hot-Dry'
+  // PlotConfig uses snake_case e.g. 'warm_humid' — normalise for comparison
+  const registryZones = (comp.climate_zone ?? '').toLowerCase().replace(/-/g, '_').replace(/;/g, ' ')
+  const userZone = plot.climate_zone.toLowerCase()
+  const climateFit = registryZones.includes(userZone) ? 100 : 50
 
-// ── Score a single material option on a 0–100 scale ───────────
-// Weights: durability 35%, climate suitability 30%, value 20%, low carbon 15%
-function scoreOption(mat: MaterialEntry, plot: PlotConfig): number {
-  const durabilityScore = (mat.expected_useful_life_years / 80) * 100
+  // Value: lower total cost = higher value score (inverted, normalised to 0–100)
+  // We use spectrum_position as a proxy when no cost data (Basic=100, Ultra-Premium=10)
+  const spectrumMap: Record<string, number> = {
+    'Basic': 90, 'Intermediate': 70, 'Performance': 50, 'Premium': 30, 'Ultra-Premium': 10,
+  }
+  const value = spectrumMap[comp.spectrum_position ?? 'Intermediate'] ?? 50
 
-  const climateSuit = mat.climate_suitability[plot.climate_zone] ?? 0.7
-  const climateScore = climateSuit * 100
+  // Low carbon: positive energy_impact_modifier = greener (saves energy/carbon)
+  const energyMod = comp.energy_impact_modifier ?? 0
+  const carbon = Math.round(50 + energyMod * 50)  // -1→0, 0→50, +1→100
 
-  // Value = inverse of cost (normalised within category — lower is better value per unit)
-  // We'll treat this relative to range, so alone it contributes a neutral midpoint
-  const valueScore = 50  // resolved relatively across options below
-
-  const carbonScore = Math.max(0, 100 - mat.carbon_footprint_kgco2 * 0.5)
-
-  return (
-    durabilityScore * 0.35 +
-    climateScore * 0.30 +
-    valueScore * 0.20 +
-    carbonScore * 0.15
+  return Math.round(
+    durability * 0.35 +
+    climateFit * 0.30 +
+    value      * 0.20 +
+    carbon     * 0.15
   )
 }
 
@@ -37,116 +40,102 @@ export interface AutoDecideResult {
   estimatedCostPerSqft: number
   estimatedTotalCost: number
   budgetPerSqft: number
-  shortfall: number  // how much over budget (0 if feasible)
-  reasoning: Record<string, { chosen: string; why: string; costPerUnit: number }>
+  shortfall: number
+  reasoning: Record<string, { chosen: string; chosenName: string; score: number; why: string }>
 }
 
-export function autoDecide(plot: PlotConfig, buildingType: string): AutoDecideResult {
+export function autoDecide(
+  plot: PlotConfig,
+  buildingType: string,
+  componentsBySubcategory: Record<string, Component[]>,
+): AutoDecideResult {
   const budget = plot.target_budget_inr ?? 0
   const builtUpArea = plot.plot_area_sqft * plot.floors
   const budgetPerSqft = budget > 0 ? budget / builtUpArea : Infinity
 
-  // Karnataka benchmark construction cost breakdown (₹/sqft)
-  // Foundation ~15%, Structure ~25%, Envelope ~20%, Interiors ~25%, MEP ~15%
-  const STAGE_BUDGET_SHARE: Record<string, number> = {
-    A: 0.15, B: 0.25, C: 0.20, D: 0.25, E: 0.15, F: 0.05,
+  // Budget tier guidance: map spectrum_position to max allowed position by budget
+  // ₹1500/sqft → Basic only; ₹2000 → up to Intermediate; ₹3000 → up to Performance; ₹4000+ → any
+  const spectrumOrder = ['Basic', 'Intermediate', 'Performance', 'Premium', 'Ultra-Premium']
+  let maxSpectrumIdx = 4  // no limit by default
+  if (budget > 0) {
+    if (budgetPerSqft < 1800) maxSpectrumIdx = 1
+    else if (budgetPerSqft < 2500) maxSpectrumIdx = 2
+    else if (budgetPerSqft < 3500) maxSpectrumIdx = 3
   }
 
   const decisions: Decision[] = []
   const reasoning: AutoDecideResult['reasoning'] = {}
+  const chosenComponents: Component[] = []
 
   for (const dp of allDecisions) {
-    const stageBudgetPct = STAGE_BUDGET_SHARE[dp.stage] ?? 0.15
-    const stageBudgetPerSqft = budgetPerSqft * stageBudgetPct
-
-    // Gather options that have material data
-    const candidates = dp.options
-      .map(id => {
-        const mat = getMaterial(id)
-        if (!mat) return null
-        const costPerUnit = mat.cost_per_unit_material + mat.cost_per_unit_labor
-        const score = scoreOption(mat, plot)
-        return { id, mat, costPerUnit, score }
-      })
-      .filter(Boolean) as { id: string; mat: MaterialEntry; costPerUnit: number; score: number }[]
-
-    let chosen: string
+    let chosenId: string
+    let chosenName: string
+    let chosenScore: number
     let why: string
-    let chosenCost = 0
 
-    if (candidates.length === 0) {
-      // No material data — use default or first
-      chosen = dp.default_option ?? dp.options[0]
-      why = 'No cost data yet — using system default'
-      chosenCost = 0
-    } else {
-      // Sort by score descending
-      candidates.sort((a, b) => b.score - a.score)
+    if (dp.subcategory && componentsBySubcategory[dp.subcategory]?.length > 0) {
+      // Registry-backed decision — pick best-scoring component within budget tier
+      const candidates = componentsBySubcategory[dp.subcategory].map(comp => ({
+        comp,
+        score: scoreComponent(comp, plot),
+        specIdx: spectrumOrder.indexOf(comp.spectrum_position ?? 'Intermediate'),
+      }))
 
-      if (budget === 0) {
-        // No budget set — pick highest scoring option
-        const best = candidates[0]
-        chosen = best.id
-        why = `Best overall score (${Math.round(best.score)}/100) — no budget constraint set`
-        chosenCost = best.costPerUnit
-      } else {
-        // Find the best-scoring option that fits within stage budget allocation
-        // Normalise costs relative to budget per sqft for this stage
-        const affordable = candidates.filter(c => {
-          // Rough check: cost per unit should be within the stage's share
-          // This is a heuristic since units differ (per sqft vs per bag etc.)
-          return c.costPerUnit <= stageBudgetPerSqft * 15  // 15 = typical unit multiplier
-        })
+      // Filter by budget tier
+      const withinBudget = candidates.filter(c => c.specIdx <= maxSpectrumIdx)
+      const pool = withinBudget.length > 0 ? withinBudget : candidates  // fallback to any if all out of budget
 
-        if (affordable.length > 0) {
-          const best = affordable[0]
-          chosen = best.id
-          why = `Best score (${Math.round(best.score)}/100) within your budget tier`
-          chosenCost = best.costPerUnit
-        } else {
-          // Nothing fits — pick cheapest option
-          candidates.sort((a, b) => a.costPerUnit - b.costPerUnit)
-          const cheapest = candidates[0]
-          chosen = cheapest.id
-          why = `Budget is tight — selected most affordable option (₹${cheapest.costPerUnit}/unit)`
-          chosenCost = cheapest.costPerUnit
-        }
+      // Pick highest scoring
+      pool.sort((a, b) => b.score - a.score)
+      const best = pool[0]
+
+      chosenId    = best.comp.component_id
+      chosenName  = best.comp.display_name
+      chosenScore = best.score
+      chosenComponents.push(best.comp)
+
+      const climateMatch = (best.comp.climate_zone ?? '').toLowerCase().replace(/-/g, '_').includes(plot.climate_zone)
+      why = `Score ${best.score}/100 · ${climateMatch ? 'Good climate fit' : 'Available for your region'} · ${best.comp.spectrum_position ?? 'Standard'} tier`
+
+      if (best.comp.ai_advisory_notes) {
+        why += ` · ${best.comp.ai_advisory_notes.slice(0, 80)}…`
       }
+    } else {
+      // No registry data — use default or first option
+      chosenId    = dp.default_option ?? dp.options[0] ?? 'UNKNOWN'
+      chosenName  = chosenId
+      chosenScore = 50
+      why = 'System default — no registry data for this decision yet'
     }
 
-    reasoning[dp.id] = {
-      chosen,
-      why,
-      costPerUnit: chosenCost,
-    }
+    reasoning[dp.id] = { chosen: chosenId, chosenName, score: chosenScore, why }
 
     decisions.push({
       id: crypto.randomUUID(),
-      build_id: '',  // filled in by caller
+      build_id: '',
       decision_id: dp.id,
       stage: dp.stage as Stage,
-      chosen_option_id: chosen,
+      chosen_option_id: chosenId,
       cost_override: null,
       notes: null,
       updated_at: new Date().toISOString(),
     })
   }
 
-  // Calculate resulting scores to estimate cost
-  const scores = calculateAllScores(decisions, plot, buildingType)
-  const estimatedCostPerSqft = scores.tco * 0.45  // roughly construction portion of TCO
-  const estimatedTotalCost = estimatedCostPerSqft * builtUpArea
+  const scores = calculateAllScores(decisions, plot, buildingType, chosenComponents)
+  const estimatedCostPerSqft = scores.tco
+  const estimatedTotalCost   = estimatedCostPerSqft * builtUpArea
 
-  const feasible = budget === 0 || estimatedTotalCost <= budget * 1.15  // 15% tolerance
+  const feasible = budget === 0 || estimatedTotalCost <= budget * 1.15
   const shortfall = feasible ? 0 : estimatedTotalCost - budget
 
   return {
     feasible,
     decisions,
     estimatedCostPerSqft: Math.round(estimatedCostPerSqft),
-    estimatedTotalCost: Math.round(estimatedTotalCost),
-    budgetPerSqft: Math.round(budgetPerSqft),
-    shortfall: Math.round(shortfall),
+    estimatedTotalCost:   Math.round(estimatedTotalCost),
+    budgetPerSqft:        Math.round(budgetPerSqft),
+    shortfall:            Math.round(shortfall),
     reasoning,
   }
 }

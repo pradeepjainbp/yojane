@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { decisionsByStage, allDecisions } from '@/data/decision-points'
 import { calculateAllScores } from '@/engine/scoring'
-import type { Build, Decision, BuildScores, Stage } from '@/types'
+import type { Build, Component, Decision, BuildScores, Stage } from '@/types'
 import ScorePanel from '@/components/simulator/ScorePanel'
 import StageNav from '@/components/simulator/StageNav'
 import DecisionCard from '@/components/simulator/DecisionCard'
@@ -38,11 +38,52 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
   const [saving, setSaving] = useState(false)
   const [showAutoDecide, setShowAutoDecide] = useState(false)
 
+  // All 134 components keyed by subcategory_name — fetched once on mount
+  const [componentsBySubcategory, setComponentsBySubcategory] = useState<Record<string, Component[]>>({})
+  const [componentsLoading, setComponentsLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchComponents() {
+      const { data, error } = await supabase
+        .from('components')
+        .select('*')
+        .eq('status', 'Active')
+        .order('sort_order', { ascending: true })
+
+      if (error || !data) {
+        console.warn('components table not yet populated — falling back to list-picker mode', error?.message)
+        setComponentsLoading(false)
+        return
+      }
+
+      const grouped: Record<string, Component[]> = {}
+      for (const row of data as Component[]) {
+        if (!grouped[row.subcategory_name]) grouped[row.subcategory_name] = []
+        grouped[row.subcategory_name].push(row)
+      }
+      setComponentsBySubcategory(grouped)
+      setComponentsLoading(false)
+    }
+    fetchComponents()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const recalcScores = useCallback((decs: Decision[]) => {
-    const newScores = calculateAllScores(decs, build.plot_config, build.building_type)
+    // Pass the chosen component objects so scoring can use registry fields
+    const chosenComponents = decs
+      .map(d => {
+        // Find the component by component_id = chosen_option_id
+        for (const comps of Object.values(componentsBySubcategory)) {
+          const found = comps.find(c => c.component_id === d.chosen_option_id)
+          if (found) return found
+        }
+        return null
+      })
+      .filter((c): c is Component => c !== null)
+
+    const newScores = calculateAllScores(decs, build.plot_config, build.building_type, chosenComponents)
     setScores(newScores)
     return newScores
-  }, [build])
+  }, [build, componentsBySubcategory])
 
   useEffect(() => {
     if (decisions.length > 0) recalcScores(decisions)
@@ -98,7 +139,6 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
   }
 
   async function handleAutoDecideApply(newDecisions: Decision[]) {
-    // Merge: new decisions overwrite existing ones for same decision_id
     const merged = [...decisions]
     for (const nd of newDecisions) {
       const idx = merged.findIndex(d => d.decision_id === nd.decision_id)
@@ -228,6 +268,9 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
                   {stageDecisions.filter(d => d.classification === 'standard').length} standard
                 </p>
               </div>
+              {componentsLoading && (
+                <span className="text-xs ml-auto" style={{ color: '#7d8590' }}>Loading material data…</span>
+              )}
             </div>
 
             {/* Mobile stage tabs */}
@@ -251,6 +294,7 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
                 <DecisionCard
                   key={dp.id}
                   decisionPoint={dp}
+                  components={dp.subcategory ? (componentsBySubcategory[dp.subcategory] ?? []) : []}
                   chosenOptionId={decisions.find(d => d.decision_id === dp.id)?.chosen_option_id ?? null}
                   stageColor={stageInfo.color}
                   onSelect={(optionId) => handleDecisionChange(dp.id, optionId)}
@@ -278,7 +322,6 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
                   {STAGES[stageIdx + 1].label} →
                 </button>
               ) : (
-                /* Last stage — show Build Complete CTA */
                 <button onClick={markComplete}
                   disabled={!allCriticalDone}
                   className="flex-1 py-3 rounded-lg font-medium text-sm cursor-pointer disabled:opacity-40"
@@ -324,6 +367,7 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
           plot={build.plot_config}
           buildingType={build.building_type}
           buildId={build.id}
+          componentsBySubcategory={componentsBySubcategory}
           onApply={handleAutoDecideApply}
           onClose={() => setShowAutoDecide(false)}
         />

@@ -3,21 +3,18 @@
 import { useState } from 'react'
 import { autoDecide } from '@/engine/auto-decide'
 import { allDecisions } from '@/data/decision-points'
-import { foundationMaterials } from '@/data/materials-foundation'
-import type { PlotConfig, Decision } from '@/types'
-
-const allMaterials = [...foundationMaterials]
-function getMaterial(id: string) { return allMaterials.find(m => m.id === id) ?? null }
+import type { Component, PlotConfig, Decision } from '@/types'
 
 interface Props {
   plot: PlotConfig
   buildingType: string
   buildId: string
+  componentsBySubcategory: Record<string, Component[]>
   onApply: (decisions: Decision[]) => void
   onClose: () => void
 }
 
-export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, onClose }: Props) {
+export default function AutoDecidePanel({ plot, buildingType, buildId, componentsBySubcategory, onApply, onClose }: Props) {
   const [budget, setBudget] = useState<number>(plot.target_budget_inr ?? 0)
   const [result, setResult] = useState<ReturnType<typeof autoDecide> | null>(null)
   const [running, setRunning] = useState(false)
@@ -26,9 +23,8 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
   function runEngine() {
     setRunning(true)
     const plotWithBudget = { ...plot, target_budget_inr: budget || null }
-    // Short timeout so UI shows running state
     setTimeout(() => {
-      const r = autoDecide(plotWithBudget, buildingType)
+      const r = autoDecide(plotWithBudget, buildingType, componentsBySubcategory)
       setResult(r)
       setRunning(false)
     }, 800)
@@ -41,8 +37,8 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
     onApply(decisionsWithBuildId)
   }
 
-  const criticalDecisions = allDecisions.filter(d => d.classification === 'critical')
-  const standardDecisions = allDecisions.filter(d => d.classification === 'standard')
+  const criticalCount  = allDecisions.filter(d => d.classification === 'critical').length
+  const standardCount  = allDecisions.filter(d => d.classification === 'standard').length
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -85,21 +81,21 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
             )}
             {!budget && (
               <p className="text-xs mt-1" style={{ color: '#7d8590' }}>
-                No budget = Yojane picks highest-quality options regardless of cost.
+                No budget = AI picks highest-quality options regardless of cost.
               </p>
             )}
           </div>
 
-          {/* What Yojane will decide */}
+          {/* What AI will decide */}
           <div className="rounded-lg p-4" style={{ background: '#0d1117', border: '1px solid #30363d' }}>
-            <p className="text-xs font-medium mb-3" style={{ color: '#7d8590' }}>Yojane will make:</p>
+            <p className="text-xs font-medium mb-3" style={{ color: '#7d8590' }}>AI will make:</p>
             <div className="flex gap-4">
               <div className="text-center">
-                <p className="text-2xl font-bold" style={{ color: '#f59e0b' }}>{criticalDecisions.length}</p>
+                <p className="text-2xl font-bold" style={{ color: '#f59e0b' }}>{criticalCount}</p>
                 <p className="text-xs" style={{ color: '#7d8590' }}>Critical decisions</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold" style={{ color: '#4ade80' }}>{standardDecisions.length}</p>
+                <p className="text-2xl font-bold" style={{ color: '#4ade80' }}>{standardCount}</p>
                 <p className="text-xs" style={{ color: '#7d8590' }}>Standard decisions</p>
               </div>
               <div className="text-center">
@@ -108,7 +104,7 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
               </div>
             </div>
             <p className="text-xs mt-3" style={{ color: '#7d8590' }}>
-              For each decision, AI scores every option on durability (35%), climate fit for your zone (30%), value for money (20%), and low carbon (15%) — then picks the highest scorer that fits your budget. You can override any choice after.
+              For each decision, AI scores every option on durability (35%), climate fit (30%), value for money (20%), and low carbon (15%) — picks the highest scorer within your budget tier. You can override any choice after.
             </p>
           </div>
 
@@ -194,13 +190,13 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
                 </div>
               )}
 
-              {/* Decision summary */}
+              {/* Decision preview */}
               <div>
                 <p className="text-xs font-medium mb-2" style={{ color: '#7d8590' }}>Decision preview</p>
                 <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
                   {result.decisions.slice(0, 20).map(dec => {
-                    const mat = getMaterial(dec.chosen_option_id)
-                    const dp = allDecisions.find(d => d.id === dec.decision_id)
+                    const dp  = allDecisions.find(d => d.id === dec.decision_id)
+                    const r   = result.reasoning[dec.decision_id]
                     const isCritical = dp?.classification === 'critical'
                     return (
                       <div key={dec.decision_id} className="flex items-start gap-2 py-1.5 text-xs"
@@ -208,12 +204,12 @@ export default function AutoDecidePanel({ plot, buildingType, buildId, onApply, 
                         <span className="font-mono flex-shrink-0 w-6" style={{ color: isCritical ? '#f59e0b' : '#7d8590' }}>
                           {dec.decision_id}
                         </span>
-                        <span style={{ color: '#e6edf3' }}>
-                          {mat?.name ?? dec.chosen_option_id}
+                        <span className="flex-1 min-w-0 truncate" style={{ color: '#e6edf3' }}>
+                          {r?.chosenName ?? dec.chosen_option_id}
                         </span>
-                        {mat && (
+                        {r?.score !== undefined && (
                           <span className="ml-auto font-mono flex-shrink-0" style={{ color: '#7d8590' }}>
-                            ₹{(mat.cost_per_unit_material + mat.cost_per_unit_labor).toLocaleString()}
+                            {r.score}/100
                           </span>
                         )}
                       </div>
