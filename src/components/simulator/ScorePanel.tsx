@@ -25,7 +25,7 @@ export default function ScorePanel({ scores, plotConfig }: Props) {
   }
 
   const budget = plotConfig?.target_budget_inr
-  const tcoDisplay = scores.tco ? `₹${scores.tco.toLocaleString()}/sqft` : '—'
+  const tcoDisplay = scores.tco ? `₹${Math.round(scores.tco).toString()}/sqft` : '—'
   const carbonDisplay = scores.carbon ? `${scores.carbon} kg/sqft` : '—'
 
   return (

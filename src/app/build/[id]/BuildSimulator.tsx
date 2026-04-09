@@ -41,17 +41,23 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
   // All 134 components keyed by subcategory_name — fetched once on mount
   const [componentsBySubcategory, setComponentsBySubcategory] = useState<Record<string, Component[]>>({})
   const [componentsLoading, setComponentsLoading] = useState(true)
+  const [componentsError, setComponentsError] = useState<string | null>(null)
 
   useEffect(() => {
     async function fetchComponents() {
       const { data, error } = await supabase
         .from('components')
         .select('*')
-        .eq('status', 'Active')
         .order('sort_order', { ascending: true })
 
-      if (error || !data) {
-        console.warn('components table not yet populated — falling back to list-picker mode', error?.message)
+      if (error) {
+        console.error('components fetch error:', error)
+        setComponentsError(error.message)
+        setComponentsLoading(false)
+        return
+      }
+      if (!data || data.length === 0) {
+        setComponentsError('components table is empty — run the registry import first')
         setComponentsLoading(false)
         return
       }
@@ -270,6 +276,17 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
               </div>
               {componentsLoading && (
                 <span className="text-xs ml-auto" style={{ color: '#7d8590' }}>Loading material data…</span>
+              )}
+              {componentsError && (
+                <span className="text-xs ml-auto px-2 py-0.5 rounded"
+                  style={{ background: '#ef444420', color: '#ef4444', border: '1px solid #ef444440' }}>
+                  ⚠ Registry error: {componentsError}
+                </span>
+              )}
+              {!componentsLoading && !componentsError && Object.keys(componentsBySubcategory).length > 0 && (
+                <span className="text-xs ml-auto" style={{ color: '#4ade80' }}>
+                  ✓ {Object.values(componentsBySubcategory).flat().length} materials loaded
+                </span>
               )}
             </div>
 
