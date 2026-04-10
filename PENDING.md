@@ -1,7 +1,7 @@
 # Yojane — Project Status & Pending Work
-> Last updated: 2026-04-09
-> Git: `pradeepjainbp/yojane` · Branch: `master` · Latest commit: `406301b`
-> Live dev: `http://localhost:3000` · Stack: Next.js 15 App Router · Supabase · Tailwind
+> Last updated: 2026-04-10
+> Git: `pradeepjainbp/yojane` · Branch: `master` · Latest commit: `9b3bb0c`
+> Live: `https://yojane.pradeepjainbp.in` · Stack: Next.js 16.2.2 (Turbopack) · Supabase · Tailwind
 
 ---
 
@@ -100,6 +100,22 @@ HVAC, Glazing, Ceiling, Column Grid, Floor System, Green Rating Target, Senior-F
 ---
 
 ## 🔴 Next Up — Highest Priority
+
+### 0. Expand Registry to Cover All Decision Points
+**Full spec:** See `TASK-registry-expansion.md` in project root.
+
+**What:** 22 decisions still use hardcoded list-picker options (e.g. Excavation Depth, Mortar Type, Countertop). They should be migrated to the registry so they render as spectrum sliders like all other decisions.
+
+**Three steps:**
+1. Add ~90 new rows to `src/data/registry.csv` (22 new subcategories, 3–5 options each)
+2. Update `src/data/decision-points.ts` — change those 22 from `options: [...]` to `subcategory: '...'` + `options: []`
+3. Re-import CSV to Supabase `components` table
+
+**Also:** 9 registry subcategories exist with no decision point (HVAC, Glazing, Ceiling, Column Grid, Floor System, Green Rating, Senior-Friendly, High-Seismic, Flood-Prone). Add decision points for these.
+
+**Future:** Add `audience: 'homeowner' | 'engineer' | 'both'` field to `DecisionPoint` type and a toggle in the simulator UI. See spec for full classification list.
+
+---
 
 ### 1. Images for Material Choices
 **What:** Decision cards show text + specs only. Users need to see what each material looks like.
