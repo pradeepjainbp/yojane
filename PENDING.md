@@ -1,6 +1,6 @@
 # Yojane — Project Status & Pending Work
 > Last updated: 2026-04-10
-> Git: `pradeepjainbp/yojane` · Branch: `master` · Latest commit: `9b3bb0c`
+> Git: `pradeepjainbp/yojane` · Branch: `master` · Latest commit: `5835143`
 > Live: `https://yojane.pradeepjainbp.in` · Stack: Next.js 16.2.2 (Turbopack) · Supabase · Tailwind
 
 ---
@@ -101,19 +101,11 @@ HVAC, Glazing, Ceiling, Column Grid, Floor System, Green Rating Target, Senior-F
 
 ## 🔴 Next Up — Highest Priority
 
-### 0. Expand Registry to Cover All Decision Points
-**Full spec:** See `TASK-registry-expansion.md` in project root.
-
-**What:** 22 decisions still use hardcoded list-picker options (e.g. Excavation Depth, Mortar Type, Countertop). They should be migrated to the registry so they render as spectrum sliders like all other decisions.
-
-**Three steps:**
-1. Add ~90 new rows to `src/data/registry.csv` (22 new subcategories, 3–5 options each)
-2. Update `src/data/decision-points.ts` — change those 22 from `options: [...]` to `subcategory: '...'` + `options: []`
-3. Re-import CSV to Supabase `components` table
-
-**Also:** 9 registry subcategories exist with no decision point (HVAC, Glazing, Ceiling, Column Grid, Floor System, Green Rating, Senior-Friendly, High-Seismic, Flood-Prone). Add decision points for these.
-
-**Future:** Add `audience: 'homeowner' | 'engineer' | 'both'` field to `DecisionPoint` type and a toggle in the simulator UI. See spec for full classification list.
+### ~~0. Expand Registry to Cover All Decision Points~~ ✅ DONE (2026-04-10)
+- Registry: 134 → 214 rows | 27 → 49 subcategories
+- All 45 decisions now use spectrum sliders (zero list-pickers remain)
+- Imported to Supabase — confirmed 214 rows in `components` table
+- See commit `5835143` for full details
 
 ---
 
