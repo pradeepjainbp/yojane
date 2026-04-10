@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { decisionsByStage, allDecisions } from '@/data/decision-points'
@@ -11,6 +11,25 @@ import StageNav from '@/components/simulator/StageNav'
 import DecisionCard from '@/components/simulator/DecisionCard'
 import IsometricView from '@/components/simulator/IsometricView'
 import AutoDecidePanel from '@/components/simulator/AutoDecidePanel'
+
+function computeDirectCost(
+  decs: Decision[],
+  componentsBySubcategory: Record<string, Component[]>,
+  plotArea: number,
+  floors: number
+): number {
+  let total = 0
+  for (const dec of decs) {
+    for (const comps of Object.values(componentsBySubcategory)) {
+      const found = comps.find(c => c.component_id === dec.chosen_option_id)
+      if (found) {
+        total += ((found.base_cost_per_sqft_inr ?? 0) + (found.installation_cost_per_sqft_inr ?? 0)) * plotArea * floors
+        break
+      }
+    }
+  }
+  return total
+}
 
 const STAGES: { id: Stage; label: string; color: string }[] = [
   { id: 'A', label: 'Foundation', color: '#f59e0b' },
@@ -37,6 +56,9 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
   const [scores, setScores] = useState<BuildScores | null>(initialScores)
   const [saving, setSaving] = useState(false)
   const [showAutoDecide, setShowAutoDecide] = useState(false)
+  const [directCost, setDirectCost] = useState(0)
+  const [costDelta, setCostDelta] = useState<number | null>(null)
+  const deltaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // All 134 components keyed by subcategory_name — fetched once on mount
   const [componentsBySubcategory, setComponentsBySubcategory] = useState<Record<string, Component[]>>({})
@@ -69,6 +91,15 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
       }
       setComponentsBySubcategory(grouped)
       setComponentsLoading(false)
+      // Seed wallet with current decisions
+      const plotArea = build.plot_config?.plot_area_sqft ?? 1000
+      const floors = build.plot_config?.floors ?? 1
+      setDirectCost(computeDirectCost(
+        initialDecisions,
+        grouped,
+        plotArea,
+        floors,
+      ))
     }
     fetchComponents()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -98,6 +129,8 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
   async function handleDecisionChange(decisionId: string, optionId: string) {
     const stage = decisionId[0] as Stage
     const existing = decisions.find(d => d.decision_id === decisionId)
+    const plotArea = build.plot_config?.plot_area_sqft ?? 1000
+    const floors = build.plot_config?.floors ?? 1
 
     const updated: Decision = existing
       ? { ...existing, chosen_option_id: optionId, updated_at: new Date().toISOString() }
@@ -115,6 +148,17 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
     const newDecisions = existing
       ? decisions.map(d => d.decision_id === decisionId ? updated : d)
       : [...decisions, updated]
+
+    // Compute cost delta for wallet animation
+    const oldCost = computeDirectCost(decisions, componentsBySubcategory, plotArea, floors)
+    const newCost = computeDirectCost(newDecisions, componentsBySubcategory, plotArea, floors)
+    const delta = newCost - oldCost
+    setDirectCost(newCost)
+    if (delta !== 0) {
+      setCostDelta(delta)
+      if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
+      deltaTimerRef.current = setTimeout(() => setCostDelta(null), 3000)
+    }
 
     setDecisions(newDecisions)
     const newScores = recalcScores(newDecisions)
@@ -145,6 +189,8 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
   }
 
   async function handleAutoDecideApply(newDecisions: Decision[]) {
+    const plotArea = build.plot_config?.plot_area_sqft ?? 1000
+    const floors = build.plot_config?.floors ?? 1
     const merged = [...decisions]
     for (const nd of newDecisions) {
       const idx = merged.findIndex(d => d.decision_id === nd.decision_id)
@@ -152,6 +198,7 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
       else merged.push(nd)
     }
     setDecisions(merged)
+    setDirectCost(computeDirectCost(merged, componentsBySubcategory, plotArea, floors))
     recalcScores(merged)
     setSaving(true)
     try {
@@ -389,6 +436,111 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
           onClose={() => setShowAutoDecide(false)}
         />
       )}
+
+      {/* Floating Wallet */}
+      <FloatingWallet
+        directCost={directCost}
+        budget={budget ?? null}
+        decisionsCount={decisions.length}
+        totalDecisions={TOTAL_DECISIONS}
+        costDelta={costDelta}
+      />
+    </div>
+  )
+}
+
+// ── Floating Wallet ──────────────────────────────────────────────
+function FloatingWallet({
+  directCost,
+  budget,
+  decisionsCount,
+  totalDecisions,
+  costDelta,
+}: {
+  directCost: number
+  budget: number | null
+  decisionsCount: number
+  totalDecisions: number
+  costDelta: number | null
+}) {
+  if (directCost === 0 && decisionsCount === 0) return null
+
+  const inLakhs = (v: number) => {
+    if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`
+    return `₹${(v / 100000).toFixed(2)} L`
+  }
+
+  const pct = budget && directCost ? Math.round(((directCost - budget) / budget) * 100) : null
+  const overBudget = pct !== null && pct > 0
+  const underBudget = pct !== null && pct <= 0
+
+  const walletColor = overBudget ? '#ef4444' : underBudget ? '#4ade80' : '#60a5fa'
+  const deltaColor = costDelta !== null ? (costDelta > 0 ? '#ef4444' : '#4ade80') : 'transparent'
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: 24,
+        right: 24,
+        zIndex: 100,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: 6,
+        pointerEvents: 'none',
+      }}
+    >
+      {/* Delta flash */}
+      {costDelta !== null && (
+        <div
+          style={{
+            background: deltaColor + '20',
+            border: `1px solid ${deltaColor}60`,
+            color: deltaColor,
+            borderRadius: 8,
+            padding: '4px 10px',
+            fontSize: 13,
+            fontFamily: 'monospace',
+            fontWeight: 600,
+            animation: 'fadeInUp 0.2s ease',
+            transition: 'opacity 0.5s ease',
+          }}
+        >
+          {costDelta > 0 ? '+' : ''}{inLakhs(Math.abs(costDelta))}
+        </div>
+      )}
+
+      {/* Wallet pill */}
+      <div
+        style={{
+          background: '#161b22',
+          border: `1px solid ${walletColor}50`,
+          borderRadius: 12,
+          padding: '10px 16px',
+          boxShadow: `0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px ${walletColor}20`,
+          minWidth: 180,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 11, color: '#7d8590', fontFamily: 'monospace' }}>
+            ESTIMATE ({decisionsCount}/{totalDecisions})
+          </span>
+          {pct !== null && (
+            <span style={{ fontSize: 10, color: walletColor, fontFamily: 'monospace' }}>
+              {pct > 0 ? `+${pct}%` : `${pct}%`}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: walletColor, marginTop: 2, letterSpacing: '-0.5px' }}>
+          {inLakhs(directCost)}
+        </div>
+        {budget && (
+          <div style={{ fontSize: 10, color: '#7d8590', fontFamily: 'monospace', marginTop: 2 }}>
+            budget {inLakhs(budget)}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
