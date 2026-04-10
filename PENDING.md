@@ -179,6 +179,66 @@
 
 ---
 
+## 🏗️ Architecture Decision Record — Multi-Building-Type Engine
+
+> Recorded 2026-04-10. Do not implement without rethinking the full approach.
+
+### Current state (residential-only, partially type-aware)
+
+The engine captures `building_type` in onboarding and passes it through to `calculateAllScores()`.
+It is used in **one place only**: `COMFORT_WEIGHTS` in `src/engine/scoring.ts` — weighting thermal/light/ventilation/acoustic/spatial differently for `residential` / `apartment` / `commercial`.
+
+Everything else (Durability, Resilience, TCO, Carbon, all 45 decision points, all AREA_FRACTIONs) is identical regardless of building type. The 45-decision tree and the 214-row registry were designed for a **South India residential house**.
+
+### What actually differs by building type
+
+| Factor | House | Office | Factory / Shed |
+|---|---|---|---|
+| Internal walls (D2, D3) | Many partitions | Open plan or moderate | Minimal |
+| Doors (D7 main, D8 internal) | Flush/panel doors, domestic count | Commercial grade, glazed | Rolling shutters, industrial |
+| Windows (D9) | ~10% of wall area | Larger glazing ~15-20% | Skylights, ventilators (not standard windows) |
+| Electrical (E2) | Domestic single-phase load | Moderate | Heavy-duty 3-phase, larger conduits, industrial panels |
+| Flooring (D1) | Tile / marble | Epoxy or heavy tile | Industrial epoxy or CC — high-load rating |
+| Landscape (F stage) | Gardens, gate, compound wall | Parking, signage, ramp | Minimal — may not apply |
+| Comfort scoring axes | Thermal, acoustic, spatial all relevant | Acoustic + light more important | Thermal comfort not primary; ventilation/exhaust is |
+| Area fraction for D9 windows | 0.10 of built-up area | 0.15-0.20 | 0.05 or skylight fraction |
+| Electrical load multiplier | 1.0× | 1.3× | 2.0-2.5× |
+
+### Why the current approach falls short for non-residential
+
+1. **Wrong decision options** — rolling shutters, industrial epoxy floors, ventilator louvers do not exist in the registry. Users would be forced to pick domestic options that don't apply.
+2. **Wrong AREA_FRACTIONs** — window cost fraction of 0.10 makes sense for a house; for a factory it overestimates glazing, underestimates industrial doors.
+3. **Wrong comfort axes** — showing an acoustic-comfort score to a factory owner is irrelevant; showing exhaust/ventilation capacity isn't modelled at all.
+4. **Wrong decision count** — a shed may need only 20-25 decisions, not 45. Showing all 45 creates confusion.
+
+### Two viable implementation approaches
+
+**Option A — AREA_FRACTION + weight overrides per building type (lighter lift)**
+- Keep the same 45 decision points and registry
+- Add `AREA_FRACTION_BY_TYPE` and `COMFORT_WEIGHTS` already differentiated
+- Add type-specific electrical multipliers in TCO
+- Suitable if the building types are similar enough (residential ↔ apartment ↔ small commercial)
+- Files: `src/engine/scoring.ts`, `computeDirectCost()` in `BuildSimulator.tsx`
+
+**Option B — Decision tree branching by building type (correct long-term approach)**
+- Tag each DecisionPoint in `src/data/decision-points.ts` with `applicableTypes: string[]`
+- Add factory/commercial-specific components to the registry (rolling shutters, industrial flooring, etc.)
+- Swap in type-specific options in `DecisionCard.tsx` based on `buildingType`
+- Show only the N decisions relevant to that building type
+- Requires registry expansion (~30-50 new rows) + decision-point tagging + onboarding changes
+- This is the right approach before opening to commercial/industrial use
+
+### Recommendation before implementing
+
+Before writing any code, decide:
+1. Which building types will be supported in v1 (residential only? +apartment? +small office?)
+2. Whether the 214-row registry needs new components for each type, or if mapping existing ones to new uses is good enough
+3. Whether decision count should vary by type (45 for house, 30 for apartment, 25 for shed) — this affects the wallet's `X/45` counter and the report completeness signal
+
+**Do not add building-type branching as a small incremental change.** It touches the registry, decision-points data, scoring engine, wallet display, and report — do it as a deliberate milestone.
+
+---
+
 ## 📊 Summary
 
 | Category | Items | Status |

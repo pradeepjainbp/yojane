@@ -444,6 +444,7 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
         decisionsCount={decisions.length}
         totalDecisions={TOTAL_DECISIONS}
         costDelta={costDelta}
+        builtUpArea={(build.plot_config?.plot_area_sqft ?? 1000) * (build.plot_config?.floors ?? 1)}
       />
     </div>
   )
@@ -456,12 +457,14 @@ function FloatingWallet({
   decisionsCount,
   totalDecisions,
   costDelta,
+  builtUpArea,
 }: {
   directCost: number
   budget: number | null
   decisionsCount: number
   totalDecisions: number
   costDelta: number | null
+  builtUpArea: number
 }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const dragging = useRef(false)
@@ -591,6 +594,9 @@ function FloatingWallet({
         </div>
         <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: walletColor, marginTop: 2, letterSpacing: '-0.5px' }}>
           {inLakhs(directCost)}
+        </div>
+        <div style={{ fontSize: 10, color: '#7d8590', fontFamily: 'monospace', marginTop: 1 }}>
+          ₹{Math.round(directCost / Math.max(builtUpArea, 1)).toLocaleString('en-IN')}/sqft · {builtUpArea.toLocaleString('en-IN')} sqft
         </div>
         {budget && (
           <div style={{ fontSize: 10, color: '#7d8590', fontFamily: 'monospace', marginTop: 2 }}>
