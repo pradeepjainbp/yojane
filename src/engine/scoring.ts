@@ -67,9 +67,14 @@ export function calculateComfortScore(
   const natural_light = Math.round((lightBonus[plot.road_facing] ?? 0.75) * 100)
 
   // ── Ventilation ───────────────────────────────────────────
-  // Wall config from list-picker decisions (B3 has no registry data)
-  const wallConfig = getDecision(decisions, 'B3')
-  const ventBase = wallConfig === 'WALLCFG-CAVITY' ? 0.85 : wallConfig === 'WALLCFG-INSULATED' ? 0.75 : 0.70
+  // B3 is now a spectrum picker with registry IDs WCFG-001/002/003
+  const wallConfigId = getDecision(decisions, 'B3')
+  const ventByConfig: Record<string, number> = {
+    'WCFG-001': 0.70,  // Single Wythe — least thermal buffering
+    'WCFG-002': 0.85,  // Cavity Wall — air gap improves thermal separation
+    'WCFG-003': 0.75,  // Insulated Cavity — excellent thermal but slightly less natural vent
+  }
+  const ventBase = ventByConfig[wallConfigId ?? ''] ?? 0.70
   const ventClimate = plot.climate_zone === 'warm_humid' ? 0.05 : 0
   const ventilation = Math.round(Math.min(100, (ventBase + ventClimate) * 100))
 
@@ -143,18 +148,18 @@ export function calculateResilienceScore(
   const seismicWeights: Record<string, number> = { II: 0.1, III: 0.2, IV: 0.3, V: 0.4 }
   const seismicW = seismicWeights[plot.seismic_zone] ?? 0.2
 
-  // Seismic — foundation durability score as proxy
-  const foundComp = getComponent(decisions, 'A1', components)
-  const seismic = scale(foundComp?.durability_score ?? null, 60)
+  // Seismic — structural system (B1) is the primary seismic determinant; fall back to foundation (A1)
+  const structComp = getComponent(decisions, 'B1', components)
+  const foundComp  = getComponent(decisions, 'A1', components)
+  const seismic = scale((structComp ?? foundComp)?.durability_score ?? null, 60)
 
-  // Monsoon — plinth + DPC from list-picker decisions (no registry data yet)
-  const plinthChoice = getDecision(decisions, 'A7')
-  const plinthScores: Record<string, number> = { 'PLINTH-450': 50, 'PLINTH-600': 65, 'PLINTH-750': 80, 'PLINTH-900': 95 }
-  const plinthScore = plinthChoice ? (plinthScores[plinthChoice] ?? 65) : 65
+  // Monsoon — A7 (Plinth Height) and A5 (DPC) are now spectrum pickers with registry IDs
+  // Use durability_score from chosen component (PLINTH-001..004, DPC-001..003)
+  const plinthComp = getComponent(decisions, 'A7', components)
+  const plinthScore = scale(plinthComp?.durability_score ?? null, 65)
 
-  const dpcChoice = getDecision(decisions, 'A5')
-  const dpcScores: Record<string, number> = { 'DPC-CEMENT': 60, 'DPC-BITUMEN': 75, 'DPC-POLYMER': 92 }
-  const dpcScore = dpcChoice ? (dpcScores[dpcChoice] ?? 60) : 60
+  const dpcComp = getComponent(decisions, 'A5', components)
+  const dpcScore = scale(dpcComp?.durability_score ?? null, 60)
 
   const monsoon = Math.round(plinthScore * 0.5 + dpcScore * 0.5)
 
@@ -184,61 +189,113 @@ export function calculateResilienceScore(
 // ============================================================
 // TCO — Total Cost of Ownership over 20 years (₹/sqft)
 // ============================================================
+
+/**
+ * Area coverage fractions — registry costs are per sqft of the ELEMENT's own area.
+ * Windows, doors, waterproofing etc. apply to a fraction of built-up area, not all of it.
+ * Structural / bulk items apply to the full built-up area.
+ * Without this correction the sum of all components would be 2-3x the real construction cost.
+ */
+const AREA_FRACTION: Record<string, number> = {
+  // Stage D — small-area fixtures
+  D5: 0.04,   // Kitchen countertop  (~40 sqft kitchen / 1000 sqft)
+  D6: 0.06,   // Bathroom fixtures   (~60 sqft bathrooms)
+  D7: 0.03,   // Main entry door     (1 door × ~7 sqft)
+  D8: 0.05,   // Internal doors      (4-5 doors × ~7 sqft)
+  D9: 0.10,   // Windows             (~10% of floor area)
+  // Stage C — roof-only items
+  C4: 0.30,   // Waterproofing       (roof = ~30% of built-up for G+0)
+  // Stage E — already per built-up sqft in registry (plumbing, electrical run throughout)
+  // Default for all others: 1.0 (structural + bulk finishes cover full floor area)
+}
+
 export function calculateTCO(
   decisions: Decision[],
   plot: PlotConfig,
   components: Component[],
 ): number {
+  const { tcoPerSqft } = calculateTCOBreakdown(decisions, plot, components)
+  return tcoPerSqft
+}
+
+export interface TCOBreakdown {
+  constructionCostPerSqft: number
+  constructionCostTotal: number
+  annualMaint: number
+  annualEnergy: number
+  pv20yrRunning: number
+  tco20yrTotal: number
+  tcoPerSqft: number
+  componentCount: number
+  avgMaintFactor: number
+  avgEnergyMod: number
+}
+
+export function calculateTCOBreakdown(
+  decisions: Decision[],
+  plot: PlotConfig,
+  components: Component[],
+): TCOBreakdown {
   const builtUpSqft = plot.plot_area_sqft * plot.floors
+  const baseBenchmark = 1800  // ₹/sqft fallback when no components chosen
 
-  // Year-0 construction cost: sum (base + installation) per chosen component
-  // For components without registry data we use Karnataka benchmark base
-  const baseBenchmark = 1800  // ₹/sqft structural base (foundation + columns + beam)
-
+  // Year-0 construction cost
+  // Each component's registry cost is per sqft of its relevant area, not always full built-up.
+  // Apply AREA_FRACTION to convert to ₹ per sqft of built-up area before summing.
   let materialCostPerSqft = 0
-  for (const comp of components) {
-    materialCostPerSqft += (comp.base_cost_per_sqft_inr ?? 0) + (comp.installation_cost_per_sqft_inr ?? 0)
-  }
-  // If no components chosen yet, fall back to benchmark
-  const constructionCostPerSqft = materialCostPerSqft > 0
-    ? baseBenchmark * 0.4 + materialCostPerSqft   // 40% structural base + finish costs
-    : baseBenchmark
-
-  const year0 = constructionCostPerSqft * builtUpSqft
-
-  // Annual maintenance: weighted average of annual_minor_maint_factor across chosen components
   let maintFactorSum = 0
   let maintCount = 0
-  for (const comp of components) {
+  let energyModSum = 0
+  let energyModCount = 0
+
+  for (const dec of decisions) {
+    const comp = components.find(c => c.component_id === dec.chosen_option_id)
+    if (!comp) continue
+    const fraction = AREA_FRACTION[dec.decision_id] ?? 1.0
+    const unitCost = ((comp.base_cost_per_sqft_inr ?? 0) + (comp.installation_cost_per_sqft_inr ?? 0)) * fraction
+    materialCostPerSqft += unitCost
+
     if (comp.annual_minor_maint_factor !== null) {
       maintFactorSum += comp.annual_minor_maint_factor
       maintCount++
     }
-  }
-  const avgMaintFactor = maintCount > 0 ? maintFactorSum / maintCount : 0.005
-  const annualMaint = year0 * avgMaintFactor
-
-  // Annual energy cost via energy_impact_modifier
-  // Base: 1800 kWh/yr per 1000 sqft for Karnataka residential
-  const baseAnnualKWh = (builtUpSqft / 1000) * 1800
-  let energyModSum = 0
-  let energyModCount = 0
-  for (const comp of components) {
     if (comp.energy_impact_modifier !== null) {
       energyModSum += comp.energy_impact_modifier
       energyModCount++
     }
   }
+
+  const constructionCostPerSqft = materialCostPerSqft > 0 ? materialCostPerSqft : baseBenchmark
+  const constructionCostTotal = constructionCostPerSqft * builtUpSqft
+
+  // Annual maintenance
+  const avgMaintFactor = maintCount > 0 ? maintFactorSum / maintCount : 0.005
+  const annualMaint = constructionCostTotal * avgMaintFactor
+
+  // Annual energy
+  const baseAnnualKWh = (builtUpSqft / 1000) * 1800
   const avgEnergyMod = energyModCount > 0 ? energyModSum / energyModCount : 0
-  const adjustedKWh = baseAnnualKWh * (1 - avgEnergyMod * 0.3)  // 30% max swing
+  const adjustedKWh = baseAnnualKWh * (1 - avgEnergyMod * 0.3)
   const electricityRate = 7.5  // ₹/kWh BESCOM 2024
   const annualEnergy = adjustedKWh * electricityRate
 
-  // PV of 20-year running costs at 7% discount
+  // PV of 20-year running costs at 7% discount rate
   const pvFactor = (1 - Math.pow(1.07, -20)) / 0.07  // ≈ 10.59
-  const tco20yr = year0 + (annualMaint + annualEnergy) * pvFactor
+  const pv20yrRunning = (annualMaint + annualEnergy) * pvFactor
+  const tco20yrTotal = constructionCostTotal + pv20yrRunning
 
-  return Math.round(tco20yr / builtUpSqft)  // ₹/sqft
+  return {
+    constructionCostPerSqft: Math.round(constructionCostPerSqft),
+    constructionCostTotal: Math.round(constructionCostTotal),
+    annualMaint: Math.round(annualMaint),
+    annualEnergy: Math.round(annualEnergy),
+    pv20yrRunning: Math.round(pv20yrRunning),
+    tco20yrTotal: Math.round(tco20yrTotal),
+    tcoPerSqft: Math.round(tco20yrTotal / builtUpSqft),
+    componentCount: decisions.length,
+    avgMaintFactor: Math.round(avgMaintFactor * 1000) / 1000,
+    avgEnergyMod: Math.round(avgEnergyMod * 100) / 100,
+  }
 }
 
 // ============================================================

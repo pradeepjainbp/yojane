@@ -449,7 +449,7 @@ export default function BuildSimulator({ build, initialDecisions, initialScores 
   )
 }
 
-// ── Floating Wallet ──────────────────────────────────────────────
+// ── Floating Wallet (draggable) ──────────────────────────────────
 function FloatingWallet({
   directCost,
   budget,
@@ -463,65 +463,122 @@ function FloatingWallet({
   totalDecisions: number
   costDelta: number | null
 }) {
-  if (directCost === 0 && decisionsCount === 0) return null
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const dragging = useRef(false)
+  const dragOrigin = useRef({ mouseX: 0, mouseY: 0, elemX: 0, elemY: 0 })
 
-  const inLakhs = (v: number) => {
-    if (v >= 10000000) return `₹${(v / 10000000).toFixed(2)} Cr`
-    return `₹${(v / 100000).toFixed(2)} L`
+  // Initialise to bottom-right on first render
+  useEffect(() => {
+    setPos({ x: window.innerWidth - 220, y: window.innerHeight - 145 })
+  }, [])
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!dragging.current) return
+      setPos(prev => {
+        if (!prev) return prev
+        return {
+          x: Math.max(0, Math.min(window.innerWidth - 210, dragOrigin.current.elemX + e.clientX - dragOrigin.current.mouseX)),
+          y: Math.max(0, Math.min(window.innerHeight - 130, dragOrigin.current.elemY + e.clientY - dragOrigin.current.mouseY)),
+        }
+      })
+    }
+    function onUp() { dragging.current = false }
+    function onTouchMove(e: TouchEvent) {
+      if (!dragging.current) return
+      e.preventDefault()
+      const t = e.touches[0]
+      setPos(prev => {
+        if (!prev) return prev
+        return {
+          x: Math.max(0, Math.min(window.innerWidth - 210, dragOrigin.current.elemX + t.clientX - dragOrigin.current.mouseX)),
+          y: Math.max(0, Math.min(window.innerHeight - 130, dragOrigin.current.elemY + t.clientY - dragOrigin.current.mouseY)),
+        }
+      })
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchend', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', onUp)
+    }
+  }, [])
+
+  function onMouseDown(e: React.MouseEvent) {
+    if (!pos) return
+    dragging.current = true
+    dragOrigin.current = { mouseX: e.clientX, mouseY: e.clientY, elemX: pos.x, elemY: pos.y }
+    e.preventDefault()
   }
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (!pos) return
+    const t = e.touches[0]
+    dragging.current = true
+    dragOrigin.current = { mouseX: t.clientX, mouseY: t.clientY, elemX: pos.x, elemY: pos.y }
+  }
+
+  if (!pos || (directCost === 0 && decisionsCount === 0)) return null
+
+  const inLakhs = (v: number) => v >= 10000000 ? `₹${(v / 10000000).toFixed(2)} Cr` : `₹${(v / 100000).toFixed(2)} L`
 
   const pct = budget && directCost ? Math.round(((directCost - budget) / budget) * 100) : null
   const overBudget = pct !== null && pct > 0
   const underBudget = pct !== null && pct <= 0
-
   const walletColor = overBudget ? '#ef4444' : underBudget ? '#4ade80' : '#60a5fa'
   const deltaColor = costDelta !== null ? (costDelta > 0 ? '#ef4444' : '#4ade80') : 'transparent'
 
   return (
     <div
+      onMouseDown={onMouseDown}
+      onTouchStart={onTouchStart}
       style={{
         position: 'fixed',
-        bottom: 24,
-        right: 24,
+        left: pos.x,
+        top: pos.y,
         zIndex: 100,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'flex-end',
         gap: 6,
-        pointerEvents: 'none',
+        cursor: 'grab',
+        userSelect: 'none',
+        touchAction: 'none',
       }}
     >
       {/* Delta flash */}
       {costDelta !== null && (
-        <div
-          style={{
-            background: deltaColor + '20',
-            border: `1px solid ${deltaColor}60`,
-            color: deltaColor,
-            borderRadius: 8,
-            padding: '4px 10px',
-            fontSize: 13,
-            fontFamily: 'monospace',
-            fontWeight: 600,
-            animation: 'fadeInUp 0.2s ease',
-            transition: 'opacity 0.5s ease',
-          }}
-        >
+        <div style={{
+          background: deltaColor + '20',
+          border: `1px solid ${deltaColor}60`,
+          color: deltaColor,
+          borderRadius: 8,
+          padding: '4px 10px',
+          fontSize: 13,
+          fontFamily: 'monospace',
+          fontWeight: 600,
+        }}>
           {costDelta > 0 ? '+' : ''}{inLakhs(Math.abs(costDelta))}
         </div>
       )}
 
       {/* Wallet pill */}
-      <div
-        style={{
-          background: '#161b22',
-          border: `1px solid ${walletColor}50`,
-          borderRadius: 12,
-          padding: '10px 16px',
-          boxShadow: `0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px ${walletColor}20`,
-          minWidth: 180,
-        }}
-      >
+      <div style={{
+        background: '#161b22',
+        border: `1px solid ${walletColor}50`,
+        borderRadius: 12,
+        padding: '10px 16px',
+        boxShadow: `0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px ${walletColor}20`,
+        minWidth: 188,
+      }}>
+        {/* drag handle hint */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
+          <div style={{ width: 28, height: 3, borderRadius: 2, background: '#30363d' }} />
+        </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, justifyContent: 'space-between' }}>
           <span style={{ fontSize: 11, color: '#7d8590', fontFamily: 'monospace' }}>
             ESTIMATE ({decisionsCount}/{totalDecisions})
