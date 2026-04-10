@@ -57,10 +57,10 @@ export default function BuildCard({ build }: { build: Build }) {
         </h3>
         <p className="text-xs" style={{ color: '#7d8590' }}>
           {build.plot_config?.plot_area_sqft
-            ? `${build.plot_config.plot_area_sqft.toLocaleString()} sqft · ${build.plot_config.floors ?? 1} floor${(build.plot_config.floors ?? 1) > 1 ? 's' : ''}`
+            ? `${build.plot_config.plot_area_sqft} sqft · ${build.plot_config.floors ?? 1} floor${(build.plot_config.floors ?? 1) > 1 ? 's' : ''}`
             : 'Plot not configured'}
         </p>
-        <p className="text-xs mt-2" style={{ color: '#7d8590' }}>
+        <p className="text-xs mt-2" suppressHydrationWarning style={{ color: '#7d8590' }}>
           Updated {new Date(build.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
         </p>
       </Link>
